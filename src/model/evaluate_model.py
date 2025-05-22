@@ -169,27 +169,35 @@ def evaluate_model(model, config=None):
         print(f"Reynolds number plot saved to {config.OUTPUT_DIR}/reynolds_number.png")
         
         # Calculate PDE residuals on a grid
-        with torch.no_grad():
-            # Sample points for residual evaluation
-            n_sample = 1000
-            x_sample = torch.rand(n_sample, 1, device=config.DEVICE, requires_grad=True) * (config.X_MAX - config.X_MIN) + config.X_MIN
-            y_sample = torch.rand(n_sample, 1, device=config.DEVICE, requires_grad=True) * (config.Y_MAX - config.Y_MIN) + config.Y_MIN
-
-            
-            # Calculate residuals
-            residuals = model.pde_residual(x_sample, y_sample)
-            
-            # Calculate mean absolute residuals
-            mean_residuals = {
-                'momentum_x': residuals['momentum_x'].abs().mean().item(),
-                'momentum_y': residuals['momentum_y'].abs().mean().item(),
-                'continuity': residuals['continuity'].abs().mean().item()
-            }
-            
-            print("\nPDE Residuals (Mean Absolute):")
-            print(f"  Momentum-x: {mean_residuals['momentum_x']:.6e}")
-            print(f"  Momentum-y: {mean_residuals['momentum_y']:.6e}")
-            print(f"  Continuity: {mean_residuals['continuity']:.6e}")
+        # IMPORTANT: Do not use torch.no_grad() here as we need gradients for PDE residuals
+        # Create sample points with requires_grad=True for autograd
+        n_sample = 1000
+        
+        # Create tensors directly on the device with requires_grad=True
+        x_sample = torch.rand(n_sample, 1, device=config.DEVICE) * (config.X_MAX - config.X_MIN) + config.X_MIN
+        y_sample = torch.rand(n_sample, 1, device=config.DEVICE) * (config.Y_MAX - config.Y_MIN) + config.Y_MIN
+        
+        # Explicitly set requires_grad=True
+        x_sample.requires_grad_(True)
+        y_sample.requires_grad_(True)
+        
+        # Calculate residuals - ensure model is in eval mode but gradients are enabled
+        model.eval()  # Set model to evaluation mode
+        
+        # Calculate residuals without using torch.no_grad()
+        residuals = model.pde_residual(x_sample, y_sample)
+        
+        # Now that we have the residuals, we can detach for reporting
+        mean_residuals = {
+            'momentum_x': residuals['momentum_x'].detach().abs().mean().item(),
+            'momentum_y': residuals['momentum_y'].detach().abs().mean().item(),
+            'continuity': residuals['continuity'].detach().abs().mean().item()
+        }
+        
+        print("\nPDE Residuals (Mean Absolute):")
+        print(f"  Momentum-x: {mean_residuals['momentum_x']:.6e}")
+        print(f"  Momentum-y: {mean_residuals['momentum_y']:.6e}")
+        print(f"  Continuity: {mean_residuals['continuity']:.6e}")
         
         # Calculate parameter inference accuracy
         inferred_a = model.get_inferred_viscosity_param()
