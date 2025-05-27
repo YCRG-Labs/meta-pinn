@@ -1,6 +1,6 @@
 # Physics-Informed Neural Networks for Inferring Spatially Varying Fluid Viscosity
 
-This project implements a novel Physics-Informed Neural Network (PINN) framework for inferring spatially varying viscosity in fluid flows using sparse measurement data. The implementation includes state-of-the-art features for both physics complexity and neural network architecture, making it suitable for publication in high-impact journals like the Journal of Fluid Mechanics.
+This project implements a novel Physics-Informed Neural Network (PINN) framework for inferring spatially varying viscosity in fluid flows using sparse measurement data.
 
 ## Key Features
 
