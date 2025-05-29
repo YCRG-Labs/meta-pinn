@@ -39,13 +39,14 @@ const Page = () => {
         <section className="relative px-4">
           <div className="max-w-6xl mx-auto">
             <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-12 shadow-2xl">
-              <h2 className="text-4xl font-bold text-white mb-8 text-center">Abstract</h2>
-              <p className="text-blue-100 leading-relaxed text-lg text-center max-w-4xl mx-auto">
-                This investigation presents a computational framework based on Physics-Informed Neural Networks (PINNs) 
-                for the inference of spatially heterogeneous viscosity distributions. We examine linear spatial variations 
-                within two-dimensional, steady, incompressible Navier-Stokes flow regimes.
-              </p>
+              <h2 className="text-4xl font-bold text-white mb-8 text-center">Complexity Level</h2>
+
+            <div className="flex justify-center space-x-4 mb-8">
+              <button id='beginner' className='px-10 py-4 backdrop-blur-xl border border-white rounded-full bg-blue-600 font-semibold hover:bg-blue-700 transition duration-300 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-zinc-100 to-indigo-600'>beginner</button>
+              <button id='intermediate' className='px-10 py-4 backdrop-blur-xl border border-white rounded-full bg-blue-600 font-semibold hover:bg-blue-700 transition duration-300 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-zinc-100 to-indigo-600'>intermediate</button>
+              <button id='expert' className='px-10 py-4 backdrop-blur-xl border border-white rounded-full bg-blue-600 font-semibold hover:bg-blue-700 transition duration-300 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-zinc-100 to-indigo-600'>expert</button>
             </div>
+            </div>  
           </div>
         </section>
         {/* ... other sections ... */}
