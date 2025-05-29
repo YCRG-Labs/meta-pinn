@@ -16,7 +16,7 @@ const Page = () => {
   }, [])
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 relative overflow-hidden">
+    <main className="min-h-screen bg-fixed">
       {/* Hero Section */}
       <section className={`hero-section ${isScrolled ? 'shrunk' : ''}`}>
         <div className="h-full flex items-center justify-center">
@@ -34,7 +34,7 @@ const Page = () => {
       </section>
 
       {/* Content Section */}
-      <div className="content-section">
+      <div className={`content-section ${isScrolled ? '' : 'hide'}`}>
         {/* Your existing content sections */}
         <section className="relative px-4">
           <div className="max-w-6xl mx-auto">
