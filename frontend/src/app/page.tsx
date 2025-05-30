@@ -20,7 +20,6 @@ const FluidViscosityExplainer = () => {
   const handleLevelSelect = (level: 'beginner' | 'intermediate' | 'expert') => {
     setSelectedLevel(level)
     setShowContent(true)
-    // Smooth scroll to content
     setTimeout(() => {
       document.getElementById('explanation-content')?.scrollIntoView({ 
         behavior: 'smooth',
@@ -157,7 +156,7 @@ const FluidViscosityExplainer = () => {
         
         **Non-dimensional form** with characteristic scales (Lc, Uc, νbase,true):
         Rx = uux + vuy + Px - (1/Rebase)Vx(u,v,ν̃) = 0
-        Ry = uvx + vvy + Py - (1/Rebase)Vy(u,v,ν̃) = 0
+        Ry = ubx + vvy + Py - (1/Rebase)Vy(u,v,ν̃) = 0
         Rc = ux + vy = 0
         
         Where ν̃(y) = 1 + ã·y and ã = a·Lc/νbase,true is the target parameter.`
@@ -261,9 +260,13 @@ const FluidViscosityExplainer = () => {
   const currentContent = getContent()
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900">
+    <main className="min-h-screen" style={{
+      scrollSnapType: 'y mandatory'
+    }}>
       {/* Hero Section */}
-      <section className={`relative transition-all duration-1000 ${isScrolled ? 'h-32' : 'h-screen'}`}>
+      <section className={`relative transition-all duration-1000 ${isScrolled ? 'h-32' : 'h-screen'}`} style={{
+        scrollSnapAlign: 'start'
+      }}>
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm"></div>
         <div className="relative h-full flex items-center justify-center">
           <div className="text-center px-4">
@@ -272,11 +275,6 @@ const FluidViscosityExplainer = () => {
             }`}>
               Inferring Spatial Fluid Viscosity
             </h1>
-            <p className={`text-blue-200 mt-4 transition-all duration-500 ${
-              isScrolled ? 'text-sm opacity-70' : 'text-lg opacity-100'
-            }`}>
-              Using AI to Understand How Liquids Flow
-            </p>
             {!isScrolled && (
               <div className="mt-8 text-blue-200 animate-bounce">↓ Scroll Down ↓</div>
             )}
@@ -286,99 +284,113 @@ const FluidViscosityExplainer = () => {
 
       {/* Content Section */}
       <div className={`transition-all duration-1000 ${isScrolled ? 'opacity-100' : 'opacity-0'}`}>
-        <section className="relative py-16 px-4">
-          <h2 className="text-4xl font-bold text-white mb-8 text-center">Choose Your Learning Level</h2>
-          <div className="max-w-4xl mx-auto">
-            <div className="border border-white/10 rounded-3xl p-8 md:p-12 shadow-2xl backdrop-blur-xl bg-white/5">
-              <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-8">
-                <button
-                  onClick={() => handleLevelSelect('beginner')}
-                  className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
-                    transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                    ${selectedLevel === 'beginner' 
-                      ? 'bg-blue-600/50 text-white border-blue-400' 
-                      : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
-                    }`}
-                >
-                  🌟 Beginner
-                </button>
-                <button
-                  onClick={() => handleLevelSelect('intermediate')}
-                  className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
-                    transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                    ${selectedLevel === 'intermediate' 
-                      ? 'bg-blue-600/50 text-white border-blue-400' 
-                      : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
-                    }`}
-                >
-                  🎓 Intermediate
-                </button>
-                <button
-                  onClick={() => handleLevelSelect('expert')}
-                  className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
-                    transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                    ${selectedLevel === 'expert' 
-                      ? 'bg-blue-600/50 text-white border-blue-400' 
-                      : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
-                    }`}
-                >
-                  🔬 Expert
-                </button>
-              </div>
-            </div>  
+        <section className="relative py-16 px-4 min-h-screen flex items-center" style={{
+          scrollSnapAlign: 'start'
+        }}>
+          <div className="w-full">
+            <h2 className="text-4xl font-bold text-white mb-8 text-center">Choose Your Learning Level</h2>
+            <div className="max-w-4xl mx-auto">
+              <div className="border border-white/10 rounded-3xl p-8 md:p-12 shadow-2xl">
+                <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-8">
+                  <button
+                    onClick={() => handleLevelSelect('beginner')}
+                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
+                      transition-all duration-300 transform hover:scale-105 hover:shadow-xl
+                      ${selectedLevel === 'beginner' 
+                        ? 'bg-blue-600/20 text-white border-blue-400' 
+                        : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
+                      }`}
+                  >
+                    🌟 Beginner
+                  </button>
+                  <button
+                    onClick={() => handleLevelSelect('intermediate')}
+                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
+                      transition-all duration-300 transform hover:scale-105 hover:shadow-xl
+                      ${selectedLevel === 'intermediate' 
+                        ? 'bg-blue-600/20 text-white border-blue-400' 
+                        : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
+                      }`}
+                  >
+                    🎓 Intermediate
+                  </button>
+                  <button
+                    onClick={() => handleLevelSelect('expert')}
+                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
+                      transition-all duration-300 transform hover:scale-105 hover:shadow-xl
+                      ${selectedLevel === 'expert' 
+                        ? 'bg-blue-600/20 text-white border-blue-400' 
+                        : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
+                      }`}
+                  >
+                    🔬 Expert
+                  </button>
+                </div>
+              </div>  
+            </div>
           </div>
         </section>
 
         {/* Explanation Content */}
         {showContent && currentContent && (
-          <section id="explanation-content" className="py-16 px-4">
-            <div className="max-w-6xl mx-auto">
-              <h2 className="text-5xl font-bold text-white mb-12 text-center">
-                {currentContent.title}
-              </h2>
-              
-              <div className="space-y-12">
-                {currentContent.sections.map((section, index) => (
-                  <div 
-                    key={index}
-                    className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl transform transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl"
-                  >
-                    <h3 className="text-2xl font-bold text-blue-300 mb-6 flex items-center gap-3">
-                      {section.title}
-                    </h3>
-                    <div className="text-gray-100 leading-relaxed whitespace-pre-line text-lg">
-                      {section.content}
+          <>
+            <section id="explanation-content" className=" px-4 min-h-screen" style={{
+              scrollSnapAlign: 'start'
+            }}>
+              <div className="max-w-6xl mx-auto">
+                <h2 className="text-5xl font-bold text-white mb-10 text-center">
+                  {currentContent.title}
+                </h2>
+                
+                <div className="space-y-12">
+                  {currentContent.sections.map((section, index) => (
+                    <div 
+                      key={index}
+                      className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl transform transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl"
+                    >
+                      <h3 className="text-2xl font-bold text-blue-300 mb-6 flex items-center gap-3">
+                        {section.title}
+                      </h3>
+                      <div className="text-gray-100 leading-relaxed whitespace-pre-line text-lg">
+                        {section.content}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+            </section>
 
-              {/* Paper Summary */}
-              <div className="mt-16 backdrop-blur-xl bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-white/20 rounded-2xl p-8 shadow-xl">
-                <h3 className="text-3xl font-bold text-center text-white mb-6">Key Takeaways</h3>
-                <div className="grid md:grid-cols-2 gap-8 text-gray-100">
-                  <div>
-                    <h4 className="text-xl font-semibold text-blue-300 mb-4">✅ What Worked</h4>
-                    <ul className="space-y-2 text-lg">
-                      <li>• Excellent flow field reconstruction</li>
-                      <li>• Low physics equation violations</li>
-                      <li>• Robust neural network training</li>
-                      <li>• Advanced optimization techniques</li>
-                    </ul>
-                  </div>
-                  <div>
-                    <h4 className="text-xl font-semibold text-red-300 mb-4">⚠️ Challenges</h4>
-                    <ul className="space-y-2 text-lg">
-                      <li>• Poor parameter identification</li>
-                      <li>• Ill-posed inverse problem</li>
-                      <li>• Need for more/better data</li>
-                      <li>• Multiple valid solutions</li>
-                    </ul>
+            {/* Paper Summary */}
+            <section className="py-16 px-4 min-h-screen flex items-center" style={{
+              scrollSnapAlign: 'start'
+            }}>
+              <div className="max-w-6xl mx-auto w-full">
+                <div className="backdrop-blur-xl bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-white/20 rounded-2xl p-8 shadow-xl">
+                  <h3 className="text-3xl font-bold text-center text-white mb-6">Key Takeaways</h3>
+                  <div className="grid md:grid-cols-2 gap-8 text-gray-100">
+                    <div>
+                      <h4 className="text-xl font-semibold text-blue-300 mb-4">✅ What Worked</h4>
+                      <ul className="space-y-2 text-lg">
+                        <li>• Excellent flow field reconstruction</li>
+                        <li>• Low physics equation violations</li>
+                        <li>• Robust neural network training</li>
+                        <li>• Advanced optimization techniques</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-semibold text-red-300 mb-4">⚠️ Challenges</h4>
+                      <ul className="space-y-2 text-lg">
+                        <li>• Poor parameter identification</li>
+                        <li>• Ill-posed inverse problem</li>
+                        <li>• Need for more/better data</li>
+                        <li>• Multiple valid solutions</li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </>
         )}
       </div>
     </main>
