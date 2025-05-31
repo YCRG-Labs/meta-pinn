@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #000000;
+  --foreground: #000000;
 }
 
 @theme inline {
@@ -14,8 +14,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: linear-gradient(to bottom right, #0f172a, #1e3a8a, #3700b3);
+    --foreground: #000000;
   }
 }
 
@@ -39,15 +39,13 @@ body {
 
 .hero-section.shrunk {
   height: 6rem;
-  backdrop-filter: blur(12px);
 }
 
 .scroll-indicator {
-  position: absolute;
+  position: fixed;
   bottom: 30px;
   left: 47.5%;
-  transform: translateX(-50%);
-  color: white;
+  transform: translateX(-1000%);
   font-size: 1rem;
   animation: bounce 1s infinite;
 }
@@ -64,13 +62,20 @@ body {
   }
 }
 
-.content-section {
-  margin-top: 100vh;
-  position: relative;
+.content-section.hide {
+  margin-top: 20vh;
+  margin-left: 50vh;
+  position: fixed;
   z-index: 1;
-  transition: margin-top 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out;
 }
 
-.content-section.shrunk {
-  margin-top: 8rem;
+.content-section {
+  margin-top: 20vh;
+  margin-left: 50vh;
+  position: fixed;
+  z-index: 100;
+  opacity: 1;
+  transition: opacity 0.5s ease-in-out;
 }
