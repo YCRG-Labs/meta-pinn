@@ -13,7 +13,7 @@ class AdaptiveCollocationSampler:
     """
     Adaptive collocation point sampler that focuses on regions with high PDE residuals
     """
-    def __init__(self, model, config=None, initial_points=None):
+    def __init__(self, model, config=None, initial_points=None, update_frequency=50):
         if config is None:
             config = cfg
             
@@ -44,6 +44,8 @@ class AdaptiveCollocationSampler:
             self.current_points = initial_points
         else:
             self.current_points = self._generate_initial_points()
+        
+        self.update_frequency = update_frequency
     
     def _generate_initial_points(self):
         """
@@ -111,10 +113,18 @@ class AdaptiveCollocationSampler:
         self.points_history.append(self.current_points.clone())
         
         # Normalize residuals to get sampling probabilities
-        probs = residuals / (residuals.sum() + 1e-10)
+        # Add small epsilon to prevent zero probabilities
+        probs = (residuals + 1e-10) / (residuals.sum() + 1e-10)
+        
+        # Ensure probabilities sum to 1
+        probs = probs / probs.sum()
         
         # Sample indices based on probabilities
-        indices = torch.multinomial(probs.flatten(), n_samples, replacement=True)
+        try:
+            indices = torch.multinomial(probs.flatten(), n_samples, replacement=True)
+        except RuntimeError:
+            # Fallback to uniform sampling if multinomial fails
+            indices = torch.randint(0, len(probs), (n_samples,), device=self.device)
         
         # Get selected points
         selected_points = self.current_points[indices]
@@ -207,11 +217,11 @@ class CurriculumLearning:
         
         # Curriculum stages
         self.stages = [
-            {'epoch': 0, 'pde_weight': 0.1, 'bc_weight': 10.0, 'data_weight': 50.0},
-            {'epoch': int(0.1 * self.total_epochs), 'pde_weight': 0.5, 'bc_weight': 5.0, 'data_weight': 20.0},
-            {'epoch': int(0.3 * self.total_epochs), 'pde_weight': 1.0, 'bc_weight': 1.0, 'data_weight': 10.0},
-            {'epoch': int(0.6 * self.total_epochs), 'pde_weight': 1.0, 'bc_weight': 0.5, 'data_weight': 5.0},
-            {'epoch': int(0.8 * self.total_epochs), 'pde_weight': 1.0, 'bc_weight': 0.1, 'data_weight': 1.0}
+            {'epoch': 0, 'pde_weight': 0.01, 'bc_weight': 50.0, 'data_weight': 100.0},
+            {'epoch': int(0.1 * self.total_epochs), 'pde_weight': 0.1, 'bc_weight': 20.0, 'data_weight': 50.0},
+            {'epoch': int(0.3 * self.total_epochs), 'pde_weight': 0.5, 'bc_weight': 10.0, 'data_weight': 20.0},
+            {'epoch': int(0.6 * self.total_epochs), 'pde_weight': 1.0, 'bc_weight': 5.0, 'data_weight': 10.0},
+            {'epoch': int(0.8 * self.total_epochs), 'pde_weight': 1.0, 'bc_weight': 1.0, 'data_weight': 1.0}
         ]
     
     def get_weights(self, epoch):
@@ -295,27 +305,59 @@ def train_model(model, collocation_points, boundary_points, sparse_data, config=
     # Unpack sparse data
     sparse_coords, sparse_u, sparse_v, sparse_p = sparse_data
     
-    # Setup optimizer
+    # Setup optimizer with gradient clipping
     if config.OPTIMIZER_TYPE == 'Adam':
         optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
+        # Add gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # Setup scheduler with warmup for Adam
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=config.LEARNING_RATE,
+            total_steps=config.EPOCHS,
+            pct_start=0.1,
+            anneal_strategy='cos'
+        )
     elif config.OPTIMIZER_TYPE == 'LBFGS':
-        optimizer = torch.optim.LBFGS(model.parameters(), lr=config.LEARNING_RATE)
+        optimizer = torch.optim.LBFGS(
+            model.parameters(),
+            lr=config.LEARNING_RATE,
+            max_iter=20,
+            max_eval=25,
+            tolerance_grad=1e-7,
+            tolerance_change=1e-9,
+            history_size=50
+        )
+        # Simple step scheduler for LBFGS
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=1000,
+            gamma=0.5
+        )
     else:
         raise ValueError(f"Unknown optimizer type: {config.OPTIMIZER_TYPE}")
         
-    # Setup scheduler
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=config.SCHEDULER_STEP_SIZE, gamma=config.SCHEDULER_GAMMA
-    )
-    
     # Initialize adaptive collocation sampler if enabled
     if config.USE_ADAPTIVE_SAMPLING:
-        adaptive_sampler = AdaptiveCollocationSampler(model, config, initial_points=collocation_points)
+        adaptive_sampler = AdaptiveCollocationSampler(
+            model, 
+            config, 
+            initial_points=collocation_points,
+            update_frequency=50  # More frequent updates
+        )
         collocation_points = adaptive_sampler.get_collocation_points()
     
     # Initialize curriculum learning if enabled
     if config.USE_CURRICULUM_LEARNING:
         curriculum = CurriculumLearning(config)
+        # Adjust curriculum stages for better progression
+        curriculum.stages = [
+            {'epoch': 0, 'pde_weight': 0.01, 'bc_weight': 50.0, 'data_weight': 100.0},
+            {'epoch': int(0.1 * config.EPOCHS), 'pde_weight': 0.1, 'bc_weight': 20.0, 'data_weight': 50.0},
+            {'epoch': int(0.3 * config.EPOCHS), 'pde_weight': 0.5, 'bc_weight': 10.0, 'data_weight': 20.0},
+            {'epoch': int(0.6 * config.EPOCHS), 'pde_weight': 1.0, 'bc_weight': 5.0, 'data_weight': 10.0},
+            {'epoch': int(0.8 * config.EPOCHS), 'pde_weight': 1.0, 'bc_weight': 1.0, 'data_weight': 1.0}
+        ]
     
     # Prepare collocation points for PDE residual
     x_collocation = collocation_points[:, 0:1]

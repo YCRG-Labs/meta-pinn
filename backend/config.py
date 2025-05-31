@@ -101,19 +101,29 @@ class Config:
     def update_for_navier_stokes(self):
         """Update configuration for Navier-Stokes equations"""
         # Increase network capacity for more complex physics
-        self.PINN_LAYERS = [self.PINN_LAYERS[0], 64, 128, 256, 256, 128, 64, 3]
+        self.PINN_LAYERS = [self.PINN_LAYERS[0], 128, 256, 512, 512, 256, 128, 3]
         
         # Adjust training parameters
-        self.EPOCHS = 20000
-        self.LEARNING_RATE = 0.0005
+        self.EPOCHS = 5000
+        self.LEARNING_RATE = 0.0001
         
         # Enable advanced features
         self.USE_FOURIER_FEATURES = True
         self.USE_ADAPTIVE_WEIGHTS = True
         self.USE_CURRICULUM_LEARNING = True
+        self.USE_ADAPTIVE_SAMPLING = True
         
         # Increase collocation points for better PDE resolution
-        self.N_COLLOCATION = 10000
+        self.N_COLLOCATION = 20000
+        
+        # Adjust loss weights for better balance
+        self.WEIGHT_BC = 20.0
+        self.WEIGHT_DATA_U = 20.0
+        self.WEIGHT_DATA_V = 20.0
+        self.WEIGHT_DATA_P = 5.0
+        
+        # Use LBFGS optimizer for better convergence
+        self.OPTIMIZER_TYPE = 'LBFGS'
         
         print("Configuration updated for Navier-Stokes equations")
     
@@ -140,16 +150,34 @@ class Config:
         self.USE_ADAPTIVE_WEIGHTS = True
         self.USE_ADAPTIVE_SAMPLING = True
         self.USE_CURRICULUM_LEARNING = True
-        self.USE_REINIT_STRATEGY = True
+        self.USE_REINIT_STRATEGY = False  # Keep re-initialization disabled
         
-        # Increase network capacity
-        self.PINN_LAYERS = [self.PINN_LAYERS[0], 64, 128, 256, 256, 128, 64, 3]
+        # Increase network capacity with deeper architecture
+        self.PINN_LAYERS = [self.PINN_LAYERS[0], 128, 256, 512, 512, 256, 128, 64, 3]
         
-        # Adjust training parameters
-        self.EPOCHS = 25000
-        self.LEARNING_RATE = 0.0005
+        # Adjust training parameters for better convergence
+        self.EPOCHS = 5000
+        self.LEARNING_RATE = 0.0001
         
-        print("All advanced PINN features enabled")
+        # Increase collocation points for better PDE resolution
+        self.N_COLLOCATION = 10000
+        
+        # Adjust loss weights for better balance
+        self.WEIGHT_BC = 50.0
+        self.WEIGHT_DATA_U = 50.0
+        self.WEIGHT_DATA_V = 50.0
+        self.WEIGHT_DATA_P = 10.0
+        
+        # Use LBFGS optimizer for better convergence
+        self.OPTIMIZER_TYPE = 'LBFGS'
+        
+        # Adjust Fourier feature scale
+        self.FOURIER_SCALE = 5.0
+        
+        # Increase adaptive sampling frequency
+        self.ADAPTIVE_SAMPLING_FREQUENCY = 50
+        
+        print("All advanced PINN features enabled with optimized parameters")
     
     def print_config(self):
         """Print the current configuration"""

@@ -99,15 +99,16 @@ class PINN(nn.Module):
         # Neural network for predicting (u, v, p)
         self.net = MLP(
             config.PINN_LAYERS, 
-            activation=config.PINN_ACTIVATION,
+            activation=nn.Tanh(),
             use_fourier_features=config.USE_FOURIER_FEATURES,
             fourier_scale=config.FOURIER_SCALE,
             device=self.device
         )
         
         # Trainable parameter for viscosity variation: nu(y) = nu_base + a * y
-        # Initialize close to but not exactly at the true value
-        self.a_param = nn.Parameter(torch.tensor([0.1], device=self.device))
+        # Initialize with a better starting point
+        initial_a = torch.tensor([0.05], device=self.device)  # Start closer to true value
+        self.a_param = nn.Parameter(initial_a)
         
         # Known base viscosity (fixed)
         self.nu_base = config.NU_BASE_TRUE
@@ -123,12 +124,12 @@ class PINN(nn.Module):
         # For adaptive loss weighting
         self.use_adaptive_weights = config.USE_ADAPTIVE_WEIGHTS
         if self.use_adaptive_weights:
-            # Initialize log weights for each loss term
+            # Initialize log weights for each loss term with better values
             self.log_weight_pde_momentum_x = nn.Parameter(torch.tensor([0.0], device=self.device))
             self.log_weight_pde_momentum_y = nn.Parameter(torch.tensor([0.0], device=self.device))
             self.log_weight_pde_continuity = nn.Parameter(torch.tensor([0.0], device=self.device))
-            self.log_weight_bc = nn.Parameter(torch.tensor([0.0], device=self.device))
-            self.log_weight_data = nn.Parameter(torch.tensor([0.0], device=self.device))
+            self.log_weight_bc = nn.Parameter(torch.tensor([2.0], device=self.device))  # Higher initial BC weight
+            self.log_weight_data = nn.Parameter(torch.tensor([2.0], device=self.device))  # Higher initial data weight
         
         # Move the entire model to the specified device
         self.to(self.device)
@@ -200,19 +201,12 @@ class PINN(nn.Module):
         
         return u, v, p
     
-    def viscosity(self, y):
+    def get_viscosity(self, y):
         """
-        Calculate spatially varying viscosity: nu(y) = nu_base + a * y
-        
-        Args:
-            y: y-coordinates tensor
-            
-        Returns:
-            Viscosity tensor
+        Compute spatially varying viscosity: nu(y) = nu_base + a * y
         """
-        # Ensure input is on the correct device
-        y = y.to(self.device)
-        return self.nu_base + self.a_param * y
+        # Add small epsilon to prevent zero viscosity
+        return self.nu_base + self.a_param * y + 1e-6
     
     def pde_residual(self, x, y, t=None):
         """
@@ -292,7 +286,7 @@ class PINN(nn.Module):
         v_yy = torch.autograd.grad(v_y, y, grad_outputs=ones_v_y, create_graph=True)[0]
         
         # Calculate viscosity and its derivative
-        nu = self.viscosity(y)
+        nu = self.get_viscosity(y)
         ones_nu = torch.ones_like(nu, device=self.device)
         nu_y = torch.autograd.grad(nu, y, grad_outputs=ones_nu, create_graph=True)[0]
         
@@ -417,39 +411,27 @@ class PINN(nn.Module):
     
     def get_inferred_viscosity_param(self):
         """
-        Get the current inferred viscosity parameter a
-        
-        Returns:
-            Float value of parameter a
+        Get the inferred viscosity parameter a
         """
         return self.a_param.item()
     
-    def reinitialize_parameters(self, layer_indices=None, scale=0.1):
+    def reinitialize_parameters(self, scale=0.1):
         """
-        Reinitialize parameters of specific layers to escape local minima
+        Reinitialize network parameters while keeping the viscosity parameter
+        """
+        # Store current viscosity parameter
+        current_a = self.a_param.item()
         
-        Args:
-            layer_indices: List of layer indices to reinitialize (None for all)
-            scale: Scale factor for reinitialization
-        """
-        if layer_indices is None:
-            # Reinitialize all layers
-            for name, param in self.named_parameters():
-                if 'weight' in name or 'bias' in name:
-                    # Keep some memory of previous values
-                    param.data = param.data + scale * torch.randn_like(param.data, device=self.device)
-        else:
-            # Reinitialize only specified layers
-            for idx in layer_indices:
-                if idx < len(list(self.net.parameters())) // 2:  # Assuming weight+bias per layer
-                    weight_idx = idx * 2
-                    bias_idx = idx * 2 + 1
-                    
-                    weight = list(self.net.parameters())[weight_idx]
-                    bias = list(self.net.parameters())[bias_idx]
-                    
-                    weight.data = weight.data + scale * torch.randn_like(weight.data, device=self.device)
-                    bias.data = bias.data + scale * torch.randn_like(bias.data, device=self.device)
+        # Reinitialize network parameters
+        for param in self.net.parameters():
+            if len(param.shape) > 1:  # Weight matrices
+                nn.init.xavier_normal_(param, gain=scale)
+            else:  # Bias vectors
+                nn.init.zeros_(param)
+        
+        # Restore viscosity parameter
+        with torch.no_grad():
+            self.a_param.copy_(torch.tensor([current_a], device=self.device))
     
     def save(self, filename):
         """
@@ -527,7 +509,7 @@ if __name__ == "__main__":
         print(f"PDE residual {key}: shape={value.shape}, mean={value.abs().mean().item():.6f}")
     
     # Test viscosity function
-    nu = model.viscosity(y_flat)
+    nu = model.get_viscosity(y_flat)
     print(f"Viscosity shape: {nu.shape}, range: [{nu.min().item():.6f}, {nu.max().item():.6f}]")
     
     # Test save and load
