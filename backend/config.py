@@ -19,7 +19,7 @@ class Config:
         self.DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Output directory
-        self.OUTPUT_DIR = 'backend/results/interactive'
+        self.OUTPUT_DIR = 'backend/results'
         
         # Domain configuration
         self.X_MIN = 0.0

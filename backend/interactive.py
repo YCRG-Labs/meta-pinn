@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Interactive PINN Model Testing Script - CSV Export Version
+Interactive PINN Model Inference Script - 3D CSV Export
 
-This script allows you to load a trained PINN model and test it with different
-domain and physics parameters, saving results as CSV files instead of graphs.
+This script loads a trained PINN model and uses it to infer flow field information
+for different simulation parameters, saving comprehensive 3D CSV data for plotting.
 
 Model path is hardcoded to: results/trained_model.pth
 
@@ -28,252 +28,168 @@ from typing import Dict, List, Tuple, Optional, Union
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from config import cfg, Config
 from src.model.model import PINN
-from src.model.evaluate_model import evaluate_model
 from src.generate_data import generate_collocation_points, generate_boundary_points, generate_sparse_data_points
 
-def create_test_config(reynolds_number=None, nu_base_true=None, a_true=None, 
-                      u_max_inlet=None, x_max=None, y_max=None, x_min=None, y_min=None,
-                      use_fourier_features=None, fourier_scale=None, 
-                      use_adaptive_weights=None, use_adaptive_sampling=None, 
-                      use_curriculum_learning=None, n_collocation=None, 
-                      n_boundary=None, n_data_sparse=None, pinn_layers=None,
-                      learning_rate=None, epochs=None, name="Custom Test"):
+def create_inference_config(reynolds_number=None, nu_base_true=None, a_true=None, 
+                          u_max_inlet=None, x_max=None, y_max=None, x_min=None, y_min=None,
+                          n_grid_x=100, n_grid_y=50, n_time_slices=5, name="Custom Inference"):
     """
-    Create a test configuration with specified parameters
+    Create a configuration for inference with specified parameters
     
     Args:
         reynolds_number: Reynolds number for the flow
         nu_base_true: Base viscosity value
-        a_true: True viscosity variation parameter
+        a_true: Viscosity variation parameter (for comparison)
         u_max_inlet: Maximum inlet velocity
         x_max, y_max: Domain dimensions
         x_min, y_min: Domain origin (optional)
-        use_fourier_features: Enable Fourier feature embeddings
-        fourier_scale: Scale for Fourier features
-        use_adaptive_weights: Enable adaptive loss weighting
-        use_adaptive_sampling: Enable adaptive collocation sampling
-        use_curriculum_learning: Enable curriculum learning
-        n_collocation: Number of collocation points
-        n_boundary: Number of boundary points per edge
-        n_data_sparse: Number of sparse data points
-        pinn_layers: Network architecture
-        learning_rate: Learning rate (for display)
-        epochs: Training epochs (for display)
+        n_grid_x, n_grid_y: Grid resolution for inference
+        n_time_slices: Number of time slices (if unsteady)
         name: Configuration name
         
     Returns:
-        Configured Config object
+        Configured Config object with inference settings
     """
     # Create new config instance
-    test_config = Config()
+    inference_config = Config()
     
     # Apply parameters if provided
     if reynolds_number is not None:
-        test_config.REYNOLDS_NUMBER = reynolds_number
+        inference_config.REYNOLDS_NUMBER = reynolds_number
     
     if nu_base_true is not None:
-        test_config.NU_BASE_TRUE = nu_base_true
+        inference_config.NU_BASE_TRUE = nu_base_true
     
     if a_true is not None:
-        test_config.A_TRUE = a_true
+        inference_config.A_TRUE = a_true
     
     if u_max_inlet is not None:
-        test_config.U_MAX_INLET = u_max_inlet
+        inference_config.U_MAX_INLET = u_max_inlet
     
     if x_max is not None:
-        test_config.X_MAX = x_max
+        inference_config.X_MAX = x_max
     
     if y_max is not None:
-        test_config.Y_MAX = y_max
+        inference_config.Y_MAX = y_max
     
     if x_min is not None:
-        test_config.X_MIN = x_min
+        inference_config.X_MIN = x_min
         
     if y_min is not None:
-        test_config.Y_MIN = y_min
+        inference_config.Y_MIN = y_min
     
-    if use_fourier_features is not None:
-        test_config.USE_FOURIER_FEATURES = use_fourier_features
+    # Store inference-specific parameters
+    inference_config.N_GRID_X = n_grid_x
+    inference_config.N_GRID_Y = n_grid_y
+    inference_config.N_TIME_SLICES = n_time_slices
+    inference_config.name = name
     
-    if fourier_scale is not None:
-        test_config.FOURIER_SCALE = fourier_scale
-    
-    if use_adaptive_weights is not None:
-        test_config.USE_ADAPTIVE_WEIGHTS = use_adaptive_weights
-    
-    if use_adaptive_sampling is not None:
-        test_config.USE_ADAPTIVE_SAMPLING = use_adaptive_sampling
-    
-    if use_curriculum_learning is not None:
-        test_config.USE_CURRICULUM_LEARNING = use_curriculum_learning
-    
-    if n_collocation is not None:
-        test_config.N_COLLOCATION = n_collocation
-    
-    if n_boundary is not None:
-        test_config.N_BOUNDARY = n_boundary
-    
-    if n_data_sparse is not None:
-        test_config.N_DATA_SPARSE = n_data_sparse
-    
-    if pinn_layers is not None:
-        test_config.PINN_LAYERS = pinn_layers
-    
-    if learning_rate is not None:
-        test_config.LEARNING_RATE = learning_rate
-    
-    if epochs is not None:
-        test_config.EPOCHS = epochs
-    
-    # Store name for reporting
-    test_config.name = name
-    
-    return test_config
+    return inference_config
 
-def inspect_saved_model(model_path):
+def load_trained_model(model_path, inference_config):
     """
-    Inspect a saved model's configuration without loading it
+    Load trained model and prepare it for inference
     
     Args:
         model_path: Path to the saved model file
+        inference_config: Inference configuration object
         
     Returns:
-        Dictionary containing model information
+        Tuple of (loaded_model, updated_config)
     """
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
-    
-    # Load checkpoint
-    checkpoint = torch.load(model_path, map_location='cpu')
-    
-    model_info = {
-        'model_path': model_path,
-        'has_config': 'config' in checkpoint,
-        'has_model_state': 'model_state_dict' in checkpoint,
-        'inferred_a_param': checkpoint.get('a_param', 'Not found')
-    }
-    
-    if 'config' in checkpoint:
-        model_info['saved_config'] = checkpoint['config']
-    
-    if 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
-        model_info['state_dict_keys'] = list(state_dict.keys())
-        model_info['has_adaptive_weights'] = any('log_weight' in key for key in state_dict.keys())
-        model_info['has_fourier_features'] = any('fourier_transform' in key for key in state_dict.keys())
-        
-        # Try to infer network architecture from state dict
-        layer_keys = [key for key in state_dict.keys() if 'net.net.' in key and '.weight' in key]
-        if layer_keys:
-            model_info['inferred_layers'] = []
-            for key in sorted(layer_keys):
-                layer_shape = state_dict[key].shape
-                model_info['inferred_layers'].append(f"{key}: {list(layer_shape)}")
-    
-    return model_info
-
-def load_model_with_config(model_path, test_config):
-    """
-    Load model and prepare it for testing with the given configuration
-    
-    Args:
-        model_path: Path to the saved model file
-        test_config: Test configuration object
-        
-    Returns:
-        Tuple of (loaded_model, test_config)
-    """
-    print(f"\nLoading model from: {model_path}")
+    print(f"\nLoading trained model from: {model_path}")
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
     
     # Load checkpoint to inspect saved configuration
-    device = test_config.DEVICE
+    device = inference_config.DEVICE
     checkpoint = torch.load(model_path, map_location=device)
     
     print("Inspecting saved model configuration...")
     
-    # Extract saved configuration
+    # Extract saved configuration and update inference config
     if 'config' in checkpoint:
         saved_config = checkpoint['config']
         print(f"Saved model configuration found:")
         for key, value in saved_config.items():
             print(f"  {key}: {value}")
         
-        # Update test_config to match the saved model's architecture
-        # These are critical for model loading
+        # Update critical parameters for model loading
         if 'layers' in saved_config:
-            test_config.PINN_LAYERS = saved_config['layers']
+            inference_config.PINN_LAYERS = saved_config['layers']
         if 'use_fourier_features' in saved_config:
-            test_config.USE_FOURIER_FEATURES = saved_config['use_fourier_features']
+            inference_config.USE_FOURIER_FEATURES = saved_config['use_fourier_features']
         if 'use_adaptive_weights' in saved_config:
-            test_config.USE_ADAPTIVE_WEIGHTS = saved_config['use_adaptive_weights']
-        
-        # Update domain bounds from saved model (these affect viscosity calculation)
+            inference_config.USE_ADAPTIVE_WEIGHTS = saved_config['use_adaptive_weights']
         if 'nu_base' in saved_config:
-            test_config.NU_BASE_TRUE = saved_config['nu_base']
-        if 'x_min' in saved_config:
-            test_config.X_MIN = saved_config['x_min']
-        if 'x_max' in saved_config and not hasattr(test_config, '_user_set_x_max'):
-            test_config.X_MAX = saved_config['x_max']
-        if 'y_min' in saved_config:
-            test_config.Y_MIN = saved_config['y_min']
-        if 'y_max' in saved_config and not hasattr(test_config, '_user_set_y_max'):
-            test_config.Y_MAX = saved_config['y_max']
+            inference_config.NU_BASE_TRUE = saved_config['nu_base']
         if 'unsteady' in saved_config:
-            test_config.UNSTEADY_FLOW = saved_config['unsteady']
+            inference_config.UNSTEADY_FLOW = saved_config['unsteady']
     else:
-        print("Warning: No saved configuration found in checkpoint. Using current test config.")
+        print("Warning: No saved configuration found in checkpoint.")
     
-    # Load the model with the updated configuration
-    model = PINN.load(model_path, test_config)
+    # Load the model
+    model = PINN.load(model_path, inference_config)
     
     print(f"Model loaded successfully!")
-    print(f"Model device: {model.device}")
-    print(f"Model architecture: {test_config.PINN_LAYERS}")
-    print(f"Total parameters: {sum(p.numel() for p in model.parameters())}")
-    print(f"Uses Fourier features: {test_config.USE_FOURIER_FEATURES}")
-    print(f"Uses adaptive weights: {test_config.USE_ADAPTIVE_WEIGHTS}")
+    print(f"Model architecture: {inference_config.PINN_LAYERS}")
+    print(f"Learned viscosity parameter: {model.get_inferred_viscosity_param():.6f}")
+    print(f"Uses Fourier features: {inference_config.USE_FOURIER_FEATURES}")
+    print(f"Uses adaptive weights: {inference_config.USE_ADAPTIVE_WEIGHTS}")
     
-    return model, test_config
+    return model, inference_config
 
-def export_flow_field_csv(model, test_config, save_path):
+def infer_3d_flow_field(model, inference_config, save_path):
     """
-    Export flow field data to CSV files
+    Use the trained model to infer 3D flow field data and save as CSV
     
     Args:
         model: Trained PINN model
-        test_config: Test configuration object
+        inference_config: Inference configuration object
         save_path: Directory to save CSV files
         
     Returns:
-        Dictionary containing exported data information
+        Dictionary containing inferred data information
     """
     print("\n" + "="*70)
-    print("Exporting Flow Field Data to CSV")
+    print("Inferring 3D Flow Field Data using Trained Model")
     print("="*70)
     
-    # Create high-resolution grid for visualization
-    nx, ny = 100, 50
-    x = torch.linspace(test_config.X_MIN, test_config.X_MAX, nx, device=test_config.DEVICE)
-    y = torch.linspace(test_config.Y_MIN, test_config.Y_MAX, ny, device=test_config.DEVICE)
+    # Create high-resolution grid for inference
+    nx, ny = inference_config.N_GRID_X, inference_config.N_GRID_Y
+    x = torch.linspace(inference_config.X_MIN, inference_config.X_MAX, nx, device=inference_config.DEVICE)
+    y = torch.linspace(inference_config.Y_MIN, inference_config.Y_MAX, ny, device=inference_config.DEVICE)
     X, Y = torch.meshgrid(x, y, indexing='ij')
     x_flat = X.reshape(-1, 1)
     y_flat = Y.reshape(-1, 1)
     
     os.makedirs(save_path, exist_ok=True)
     
+    # Get the learned viscosity parameter from the model
+    learned_viscosity_param = model.get_inferred_viscosity_param()
+    
+    print(f"Using learned viscosity parameter: {learned_viscosity_param:.6f}")
+    print(f"Grid resolution: {nx} x {ny} = {nx*ny} points")
+    
     # For unsteady flow, create multiple time slices
-    if test_config.UNSTEADY_FLOW:
-        n_time_slices = 5
-        time_values = torch.linspace(test_config.T_MIN, test_config.T_MAX, n_time_slices, device=test_config.DEVICE)
+    if inference_config.UNSTEADY_FLOW:
+        n_time_slices = inference_config.N_TIME_SLICES
+        time_values = torch.linspace(inference_config.T_MIN, inference_config.T_MAX, n_time_slices, device=inference_config.DEVICE)
+        
+        print(f"Inferring unsteady flow with {n_time_slices} time slices")
+        
+        # Create comprehensive 3D+time dataset
+        all_data = []
         
         for i, t_val in enumerate(time_values):
+            print(f"Processing time slice {i+1}/{n_time_slices}: t = {t_val:.3f}")
+            
             t_flat = torch.full_like(x_flat, t_val)
             
-            # Get predictions
-            u_pred, v_pred, p_pred = model.uvp(x_flat, y_flat, t_flat)
+            # Infer flow field using trained model
+            with torch.no_grad():
+                u_pred, v_pred, p_pred = model.uvp(x_flat, y_flat, t_flat)
             
             # Convert to numpy
             x_np = x_flat.detach().cpu().numpy().flatten()
@@ -283,12 +199,25 @@ def export_flow_field_csv(model, test_config, save_path):
             v_np = v_pred.detach().cpu().numpy().flatten()
             p_np = p_pred.detach().cpu().numpy().flatten()
             
-            # Calculate derived quantities
+            # Calculate derived quantities using learned viscosity
             vel_mag = np.sqrt(u_np**2 + v_np**2)
-            nu_np = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_np
+            nu_np = inference_config.NU_BASE_TRUE + learned_viscosity_param * y_np
             
-            # Create DataFrame
-            df = pd.DataFrame({
+            # Calculate vorticity and other derived fields
+            X_grid = X.detach().cpu().numpy()
+            Y_grid = Y.detach().cpu().numpy()
+            u_grid = u_pred.reshape(nx, ny).detach().cpu().numpy()
+            v_grid = v_pred.reshape(nx, ny).detach().cpu().numpy()
+            
+            dx = (inference_config.X_MAX - inference_config.X_MIN) / (nx - 1)
+            dy = (inference_config.Y_MAX - inference_config.Y_MIN) / (ny - 1)
+            u_y = np.gradient(u_grid, dy, axis=1)
+            v_x = np.gradient(v_grid, dx, axis=0)
+            vorticity_grid = v_x - u_y
+            vorticity_flat = vorticity_grid.flatten()
+            
+            # Create data for this time slice
+            time_slice_data = {
                 'x': x_np,
                 'y': y_np,
                 't': t_np,
@@ -296,18 +225,46 @@ def export_flow_field_csv(model, test_config, save_path):
                 'v_velocity': v_np,
                 'pressure': p_np,
                 'velocity_magnitude': vel_mag,
-                'viscosity': nu_np
-            })
+                'viscosity': nu_np,
+                'vorticity': vorticity_flat,
+                'reynolds_local': vel_mag * inference_config.U_MAX_INLET / nu_np,
+                'time_slice': np.full_like(x_np, i),
+                'learned_viscosity_param': np.full_like(x_np, learned_viscosity_param)
+            }
             
-            # Save to CSV
-            filename = f'flow_field_t_{t_val:.3f}.csv'
-            filepath = os.path.join(save_path, filename)
-            df.to_csv(filepath, index=False)
-            print(f"Saved time slice t={t_val:.3f} to {filename}")
+            all_data.append(time_slice_data)
             
+            # Save individual time slice
+            df_time = pd.DataFrame(time_slice_data)
+            filepath = os.path.join(save_path, f'inferred_flow_3d_t_{t_val:.3f}.csv')
+            df_time.to_csv(filepath, index=False)
+            print(f"  Saved: inferred_flow_3d_t_{t_val:.3f}.csv")
+        
+        # Combine all time slices into one comprehensive 4D dataset
+        combined_data = {}
+        for key in all_data[0].keys():
+            combined_data[key] = np.concatenate([data[key] for data in all_data])
+        
+        df_combined = pd.DataFrame(combined_data)
+        filepath = os.path.join(save_path, 'inferred_flow_4d_complete.csv')
+        df_combined.to_csv(filepath, index=False)
+        print(f"Saved combined 4D dataset: inferred_flow_4d_complete.csv")
+        
+        return {
+            'grid_size': [nx, ny],
+            'time_slices': n_time_slices,
+            'learned_viscosity_param': learned_viscosity_param,
+            'total_points': nx * ny * n_time_slices,
+            'files_created': [f'inferred_flow_3d_t_{t:.3f}.csv' for t in time_values.cpu().numpy()] + ['inferred_flow_4d_complete.csv']
+        }
+        
     else:
-        # Steady flow
-        u_pred, v_pred, p_pred = model.uvp(x_flat, y_flat)
+        # Steady flow inference
+        print("Inferring steady flow field")
+        
+        # Infer flow field using trained model
+        with torch.no_grad():
+            u_pred, v_pred, p_pred = model.uvp(x_flat, y_flat)
         
         # Convert to numpy
         x_np = x_flat.detach().cpu().numpy().flatten()
@@ -316,19 +273,20 @@ def export_flow_field_csv(model, test_config, save_path):
         v_np = v_pred.detach().cpu().numpy().flatten()
         p_np = p_pred.detach().cpu().numpy().flatten()
         
-        # Calculate derived quantities
+        # Calculate derived quantities using learned viscosity
         vel_mag = np.sqrt(u_np**2 + v_np**2)
-        nu_np = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_np
+        nu_np = inference_config.NU_BASE_TRUE + learned_viscosity_param * y_np
         
-        # Calculate vorticity on the grid
+        # Calculate vorticity and other derived fields on the grid
         X_grid = X.detach().cpu().numpy()
         Y_grid = Y.detach().cpu().numpy()
         u_grid = u_pred.reshape(nx, ny).detach().cpu().numpy()
         v_grid = v_pred.reshape(nx, ny).detach().cpu().numpy()
+        p_grid = p_pred.reshape(nx, ny).detach().cpu().numpy()
         
-        # Calculate gradients for vorticity
-        dx = (test_config.X_MAX - test_config.X_MIN) / (nx - 1)
-        dy = (test_config.Y_MAX - test_config.Y_MIN) / (ny - 1)
+        # Calculate gradients for derived quantities
+        dx = (inference_config.X_MAX - inference_config.X_MIN) / (nx - 1)
+        dy = (inference_config.Y_MAX - inference_config.Y_MIN) / (ny - 1)
         u_y = np.gradient(u_grid, dy, axis=1)
         v_x = np.gradient(v_grid, dx, axis=0)
         vorticity_grid = v_x - u_y
@@ -340,739 +298,549 @@ def export_flow_field_csv(model, test_config, save_path):
         divergence_grid = u_x + v_y
         divergence_flat = divergence_grid.flatten()
         
-        # Create DataFrame
-        df = pd.DataFrame({
+        # Calculate shear stress
+        shear_stress_grid = nu_np.reshape(nx, ny) * (u_y + v_x)
+        shear_stress_flat = shear_stress_grid.flatten()
+        
+        # Create comprehensive 3D dataset
+        inferred_data = {
             'x': x_np,
             'y': y_np,
+            'z_velocity_magnitude': vel_mag,  # Use velocity magnitude as 3rd dimension
             'u_velocity': u_np,
             'v_velocity': v_np,
             'pressure': p_np,
             'velocity_magnitude': vel_mag,
             'viscosity': nu_np,
             'vorticity': vorticity_flat,
-            'divergence': divergence_flat
-        })
-        
-        # Save main flow field
-        filepath = os.path.join(save_path, 'flow_field.csv')
-        df.to_csv(filepath, index=False)
-        print(f"Saved steady flow field to flow_field.csv")
-        
-        # Save additional derived fields
-        derived_df = pd.DataFrame({
-            'x': x_np,
-            'y': y_np,
-            'vorticity': vorticity_flat,
             'divergence': divergence_flat,
-            'shear_rate': np.sqrt(u_y.flatten()**2 + v_x.flatten()**2),
-            'reynolds_local': vel_mag / nu_np
-        })
+            'shear_stress': shear_stress_flat,
+            'reynolds_local': vel_mag * inference_config.U_MAX_INLET / nu_np,
+            'learned_viscosity_param': np.full_like(x_np, learned_viscosity_param),
+            'grid_i': np.repeat(np.arange(nx), ny),  # Grid indices for reconstruction
+            'grid_j': np.tile(np.arange(ny), nx)
+        }
         
-        derived_filepath = os.path.join(save_path, 'derived_fields.csv')
-        derived_df.to_csv(derived_filepath, index=False)
-        print(f"Saved derived fields to derived_fields.csv")
-    
-    print(f"Flow field CSV export completed")
-    
-    return {
-        'grid_size': [nx, ny],
-        'steady_flow': not test_config.UNSTEADY_FLOW,
-        'files_created': ['flow_field.csv', 'derived_fields.csv'] if not test_config.UNSTEADY_FLOW else [f'flow_field_t_{t:.3f}.csv' for t in time_values.cpu().numpy()]
-    }
-
-def export_boundary_data_csv(model, test_config, save_path):
-    """
-    Export boundary condition data to CSV files
-    
-    Args:
-        model: Trained PINN model
-        test_config: Test configuration object
-        save_path: Directory to save CSV files
-    """
-    print("\nExporting boundary data to CSV...")
-    
-    # Generate boundary points
-    boundary_points = generate_boundary_points(test_config)
-    
-    # Process each boundary
-    for boundary_name, points in boundary_points.items():
-        points_np = points.detach().cpu().numpy()
-        
-        if test_config.UNSTEADY_FLOW and points.shape[1] > 2:
-            x_vals = points[:, 0:1]
-            y_vals = points[:, 1:2]
-            t_vals = points[:, 2:3]
-            u_pred, v_pred, p_pred = model.uvp(x_vals, y_vals, t_vals)
-            
-            df = pd.DataFrame({
-                'x': points_np[:, 0],
-                'y': points_np[:, 1],
-                't': points_np[:, 2],
-                'u_velocity': u_pred.detach().cpu().numpy().flatten(),
-                'v_velocity': v_pred.detach().cpu().numpy().flatten(),
-                'pressure': p_pred.detach().cpu().numpy().flatten()
-            })
-        else:
-            x_vals = points[:, 0:1]
-            y_vals = points[:, 1:2]
-            u_pred, v_pred, p_pred = model.uvp(x_vals, y_vals)
-            
-            df = pd.DataFrame({
-                'x': points_np[:, 0],
-                'y': points_np[:, 1],
-                'u_velocity': u_pred.detach().cpu().numpy().flatten(),
-                'v_velocity': v_pred.detach().cpu().numpy().flatten(),
-                'pressure': p_pred.detach().cpu().numpy().flatten()
-            })
-        
-        # Save boundary data
-        filepath = os.path.join(save_path, f'boundary_{boundary_name}.csv')
+        # Save main 3D flow field
+        df = pd.DataFrame(inferred_data)
+        filepath = os.path.join(save_path, 'inferred_flow_3d_complete.csv')
         df.to_csv(filepath, index=False)
-        print(f"Saved {boundary_name} boundary data to boundary_{boundary_name}.csv")
+        print(f"Saved complete 3D dataset: inferred_flow_3d_complete.csv")
+        
+        # Save grid-structured data for easy plotting
+        grid_data = {
+            'x_coordinates': X_grid.tolist(),
+            'y_coordinates': Y_grid.tolist(),
+            'u_velocity_grid': u_grid.tolist(),
+            'v_velocity_grid': v_grid.tolist(),
+            'pressure_grid': p_grid.tolist(),
+            'velocity_magnitude_grid': np.sqrt(u_grid**2 + v_grid**2).tolist(),
+            'vorticity_grid': vorticity_grid.tolist(),
+            'viscosity_grid': (inference_config.NU_BASE_TRUE + learned_viscosity_param * Y_grid).tolist()
+        }
+        
+        with open(os.path.join(save_path, 'inferred_flow_3d_grid.json'), 'w') as f:
+            json.dump(grid_data, f, indent=2)
+        print(f"Saved grid-structured data: inferred_flow_3d_grid.json")
+        
+        # Save separate files for each field (for specialized plotting)
+        field_files = []
+        for field_name in ['u_velocity', 'v_velocity', 'pressure', 'velocity_magnitude', 'vorticity', 'viscosity']:
+            field_df = pd.DataFrame({
+                'x': x_np,
+                'y': y_np,
+                'z': inferred_data[field_name],
+                'value': inferred_data[field_name],
+                'field_name': field_name,
+                'learned_viscosity_param': learned_viscosity_param
+            })
+            field_filepath = os.path.join(save_path, f'inferred_{field_name}_3d.csv')
+            field_df.to_csv(field_filepath, index=False)
+            field_files.append(f'inferred_{field_name}_3d.csv')
+            print(f"  Saved field: inferred_{field_name}_3d.csv")
+        
+        return {
+            'grid_size': [nx, ny],
+            'steady_flow': True,
+            'learned_viscosity_param': learned_viscosity_param,
+            'total_points': nx * ny,
+            'files_created': ['inferred_flow_3d_complete.csv', 'inferred_flow_3d_grid.json'] + field_files
+        }
 
-def export_centerline_data_csv(model, test_config, save_path):
+def infer_boundary_analysis(model, inference_config, save_path):
     """
-    Export centerline velocity profile to CSV
+    Use model to infer boundary condition behavior and save as CSV
+    """
+    print("\nInferring boundary behavior...")
     
-    Args:
-        model: Trained PINN model
-        test_config: Test configuration object
-        save_path: Directory to save CSV files
+    # Generate high-resolution boundary points
+    n_boundary_points = 200
+    
+    # Inlet boundary analysis
+    x_inlet = torch.full((n_boundary_points, 1), inference_config.X_MIN, device=inference_config.DEVICE)
+    y_inlet = torch.linspace(inference_config.Y_MIN, inference_config.Y_MAX, n_boundary_points, device=inference_config.DEVICE).unsqueeze(1)
+    
+    with torch.no_grad():
+        u_inlet, v_inlet, p_inlet = model.uvp(x_inlet, y_inlet)
+    
+    inlet_data = pd.DataFrame({
+        'x': x_inlet.cpu().numpy().flatten(),
+        'y': y_inlet.cpu().numpy().flatten(),
+        'u_velocity': u_inlet.cpu().numpy().flatten(),
+        'v_velocity': v_inlet.cpu().numpy().flatten(),
+        'pressure': p_inlet.cpu().numpy().flatten(),
+        'boundary_type': 'inlet',
+        'learned_viscosity_param': model.get_inferred_viscosity_param()
+    })
+    
+    # Outlet boundary analysis
+    x_outlet = torch.full((n_boundary_points, 1), inference_config.X_MAX, device=inference_config.DEVICE)
+    y_outlet = torch.linspace(inference_config.Y_MIN, inference_config.Y_MAX, n_boundary_points, device=inference_config.DEVICE).unsqueeze(1)
+    
+    with torch.no_grad():
+        u_outlet, v_outlet, p_outlet = model.uvp(x_outlet, y_outlet)
+    
+    outlet_data = pd.DataFrame({
+        'x': x_outlet.cpu().numpy().flatten(),
+        'y': y_outlet.cpu().numpy().flatten(),
+        'u_velocity': u_outlet.cpu().numpy().flatten(),
+        'v_velocity': v_outlet.cpu().numpy().flatten(),
+        'pressure': p_outlet.cpu().numpy().flatten(),
+        'boundary_type': 'outlet',
+        'learned_viscosity_param': model.get_inferred_viscosity_param()
+    })
+    
+    # Wall boundaries
+    x_wall_bottom = torch.linspace(inference_config.X_MIN, inference_config.X_MAX, n_boundary_points, device=inference_config.DEVICE).unsqueeze(1)
+    y_wall_bottom = torch.full((n_boundary_points, 1), inference_config.Y_MIN, device=inference_config.DEVICE)
+    
+    with torch.no_grad():
+        u_wall_bottom, v_wall_bottom, p_wall_bottom = model.uvp(x_wall_bottom, y_wall_bottom)
+    
+    wall_bottom_data = pd.DataFrame({
+        'x': x_wall_bottom.cpu().numpy().flatten(),
+        'y': y_wall_bottom.cpu().numpy().flatten(),
+        'u_velocity': u_wall_bottom.cpu().numpy().flatten(),
+        'v_velocity': v_wall_bottom.cpu().numpy().flatten(),
+        'pressure': p_wall_bottom.cpu().numpy().flatten(),
+        'boundary_type': 'wall_bottom',
+        'learned_viscosity_param': model.get_inferred_viscosity_param()
+    })
+    
+    # Combine all boundary data
+    boundary_data = pd.concat([inlet_data, outlet_data, wall_bottom_data], ignore_index=True)
+    
+    # Save boundary analysis
+    filepath = os.path.join(save_path, 'inferred_boundary_analysis.csv')
+    boundary_data.to_csv(filepath, index=False)
+    print(f"Saved boundary analysis: inferred_boundary_analysis.csv")
+    
+    return boundary_data
+
+def infer_centerline_analysis(model, inference_config, save_path):
     """
-    print("\nExporting centerline data to CSV...")
+    Use model to infer centerline flow behavior
+    """
+    print("\nInferring centerline flow behavior...")
     
     # Create centerline points
-    n_points = 100
-    x_centerline = torch.linspace(test_config.X_MIN, test_config.X_MAX, n_points, device=test_config.DEVICE).unsqueeze(1)
-    y_centerline = torch.full_like(x_centerline, (test_config.Y_MIN + test_config.Y_MAX) / 2)
+    n_points = 300
+    x_centerline = torch.linspace(inference_config.X_MIN, inference_config.X_MAX, n_points, device=inference_config.DEVICE).unsqueeze(1)
+    y_centerline = torch.full_like(x_centerline, (inference_config.Y_MIN + inference_config.Y_MAX) / 2)
     
-    # Get predictions along centerline
-    u_pred, v_pred, p_pred = model.uvp(x_centerline, y_centerline)
+    # Infer flow along centerline using trained model
+    with torch.no_grad():
+        u_pred, v_pred, p_pred = model.uvp(x_centerline, y_centerline)
     
-    # Calculate viscosity along centerline
-    nu_centerline = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_centerline
+    # Calculate viscosity along centerline using learned parameter
+    learned_viscosity_param = model.get_inferred_viscosity_param()
+    nu_centerline = inference_config.NU_BASE_TRUE + learned_viscosity_param * y_centerline
     
-    # Create DataFrame
-    df = pd.DataFrame({
+    # Create centerline analysis dataset
+    centerline_data = pd.DataFrame({
         'x': x_centerline.detach().cpu().numpy().flatten(),
         'y': y_centerline.detach().cpu().numpy().flatten(),
         'u_velocity': u_pred.detach().cpu().numpy().flatten(),
         'v_velocity': v_pred.detach().cpu().numpy().flatten(),
         'pressure': p_pred.detach().cpu().numpy().flatten(),
-        'viscosity': nu_centerline.detach().cpu().numpy().flatten()
+        'velocity_magnitude': np.sqrt(u_pred.detach().cpu().numpy().flatten()**2 + v_pred.detach().cpu().numpy().flatten()**2),
+        'viscosity': nu_centerline.detach().cpu().numpy().flatten(),
+        'learned_viscosity_param': learned_viscosity_param,
+        'distance_from_inlet': x_centerline.detach().cpu().numpy().flatten() - inference_config.X_MIN
     })
     
-    filepath = os.path.join(save_path, 'centerline_profile.csv')
-    df.to_csv(filepath, index=False)
-    print(f"Saved centerline profile to centerline_profile.csv")
-
-def export_viscosity_profile_csv(model, test_config, save_path):
-    """
-    Export viscosity profile comparison to CSV
+    filepath = os.path.join(save_path, 'inferred_centerline_analysis.csv')
+    centerline_data.to_csv(filepath, index=False)
+    print(f"Saved centerline analysis: inferred_centerline_analysis.csv")
     
-    Args:
-        model: Trained PINN model
-        test_config: Test configuration object
-        save_path: Directory to save CSV files
+    return centerline_data
+
+def infer_viscosity_profile(model, inference_config, save_path):
     """
-    print("\nExporting viscosity profile to CSV...")
+    Use model to infer viscosity profile across domain
+    """
+    print("\nInferring viscosity profile...")
     
     # Create y-coordinate range
-    n_points = 100
-    y_values = np.linspace(test_config.Y_MIN, test_config.Y_MAX, n_points)
+    n_points = 200
+    y_values = np.linspace(inference_config.Y_MIN, inference_config.Y_MAX, n_points)
     
-    # Calculate true and inferred viscosity profiles
-    nu_true = test_config.NU_BASE_TRUE + test_config.A_TRUE * y_values
-    nu_inferred = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_values
+    # Get learned viscosity parameter
+    learned_viscosity_param = model.get_inferred_viscosity_param()
     
-    # Calculate error
-    absolute_error = np.abs(nu_inferred - nu_true)
-    relative_error = absolute_error / nu_true * 100
+    # Calculate learned viscosity profile
+    nu_learned = inference_config.NU_BASE_TRUE + learned_viscosity_param * y_values
     
-    # Create DataFrame
-    df = pd.DataFrame({
+    # Compare with reference (if a_true is provided)
+    if hasattr(inference_config, 'A_TRUE') and inference_config.A_TRUE is not None:
+        nu_reference = inference_config.NU_BASE_TRUE + inference_config.A_TRUE * y_values
+        absolute_error = np.abs(nu_learned - nu_reference)
+        relative_error = absolute_error / nu_reference * 100
+    else:
+        nu_reference = np.full_like(nu_learned, np.nan)
+        absolute_error = np.full_like(nu_learned, np.nan)
+        relative_error = np.full_like(nu_learned, np.nan)
+    
+    # Create viscosity profile dataset
+    viscosity_data = pd.DataFrame({
         'y': y_values,
-        'viscosity_true': nu_true,
-        'viscosity_inferred': nu_inferred,
+        'viscosity_learned': nu_learned,
+        'viscosity_reference': nu_reference,
         'absolute_error': absolute_error,
-        'relative_error_percent': relative_error
+        'relative_error_percent': relative_error,
+        'learned_viscosity_param': learned_viscosity_param,
+        'reference_viscosity_param': getattr(inference_config, 'A_TRUE', np.nan),
+        'base_viscosity': inference_config.NU_BASE_TRUE
     })
     
-    filepath = os.path.join(save_path, 'viscosity_profile.csv')
-    df.to_csv(filepath, index=False)
-    print(f"Saved viscosity profile comparison to viscosity_profile.csv")
+    filepath = os.path.join(save_path, 'inferred_viscosity_profile.csv')
+    viscosity_data.to_csv(filepath, index=False)
+    print(f"Saved viscosity profile: inferred_viscosity_profile.csv")
+    
+    return viscosity_data
 
-def export_model_metrics_csv(model, test_config, metrics, save_path):
+def export_inference_summary(model, inference_config, inference_results, save_path):
     """
-    Export model evaluation metrics to CSV
-    
-    Args:
-        model: Trained PINN model
-        test_config: Test configuration object
-        metrics: Evaluation metrics dictionary
-        save_path: Directory to save CSV files
+    Export summary of inference results
     """
-    print("\nExporting model metrics to CSV...")
+    learned_viscosity_param = model.get_inferred_viscosity_param()
     
-    # Create metrics summary
-    metrics_data = {
-        'metric': [
-            'reynolds_number',
-            'viscosity_base_true',
-            'viscosity_param_true',
-            'viscosity_param_inferred',
-            'absolute_error',
-            'relative_error_percent',
-            'pde_residual_momentum_x',
-            'pde_residual_momentum_y',
-            'pde_residual_continuity',
-            'model_total_parameters',
-            'domain_x_min',
-            'domain_x_max',
-            'domain_y_min',
-            'domain_y_max',
-            'inlet_velocity_max',
-            'use_fourier_features',
-            'use_adaptive_weights'
-        ],
-        'value': [
-            test_config.REYNOLDS_NUMBER,
-            test_config.NU_BASE_TRUE,
-            test_config.A_TRUE,
-            model.get_inferred_viscosity_param(),
-            metrics['abs_error'],
-            metrics['rel_error'],
-            metrics['pde_residuals']['momentum_x'],
-            metrics['pde_residuals']['momentum_y'],
-            metrics['pde_residuals']['continuity'],
-            sum(p.numel() for p in model.parameters()),
-            test_config.X_MIN,
-            test_config.X_MAX,
-            test_config.Y_MIN,
-            test_config.Y_MAX,
-            test_config.U_MAX_INLET,
-            test_config.USE_FOURIER_FEATURES,
-            test_config.USE_ADAPTIVE_WEIGHTS
-        ]
+    summary_data = {
+        'inference_info': {
+            'model_architecture': inference_config.PINN_LAYERS,
+            'learned_viscosity_param': float(learned_viscosity_param),
+            'base_viscosity': float(inference_config.NU_BASE_TRUE),
+            'reference_viscosity_param': float(getattr(inference_config, 'A_TRUE', np.nan)),
+            'reynolds_number': float(inference_config.REYNOLDS_NUMBER),
+            'max_inlet_velocity': float(inference_config.U_MAX_INLET),
+            'domain_bounds': {
+                'x_min': float(inference_config.X_MIN),
+                'x_max': float(inference_config.X_MAX),
+                'y_min': float(inference_config.Y_MIN),
+                'y_max': float(inference_config.Y_MAX)
+            },
+            'grid_resolution': inference_results['grid_size'],
+            'total_inference_points': inference_results['total_points'],
+            'inference_time': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'configuration_name': inference_config.name
+        },
+        'files_created': inference_results['files_created'],
+        'model_features': {
+            'uses_fourier_features': inference_config.USE_FOURIER_FEATURES,
+            'uses_adaptive_weights': inference_config.USE_ADAPTIVE_WEIGHTS,
+            'unsteady_flow': inference_config.UNSTEADY_FLOW
+        }
     }
     
-    df = pd.DataFrame(metrics_data)
-    filepath = os.path.join(save_path, 'model_metrics.csv')
-    df.to_csv(filepath, index=False)
-    print(f"Saved model metrics to model_metrics.csv")
+    # Calculate error if reference is available
+    if hasattr(inference_config, 'A_TRUE') and not np.isnan(inference_config.A_TRUE):
+        error = abs(learned_viscosity_param - inference_config.A_TRUE)
+        rel_error = error / inference_config.A_TRUE * 100
+        summary_data['inference_accuracy'] = {
+            'absolute_error': float(error),
+            'relative_error_percent': float(rel_error)
+        }
+    
+    # Save summary
+    summary_path = os.path.join(save_path, 'inference_summary.json')
+    with open(summary_path, 'w') as f:
+        json.dump(summary_data, f, indent=2)
+    
+    print(f"Saved inference summary: inference_summary.json")
+    
+    return summary_data
 
-def export_pde_residuals_csv(model, test_config, save_path):
+def run_inference_session(model, inference_config, model_path, output_suffix="inference"):
     """
-    Export PDE residuals at sample points to CSV
-    
-    Args:
-        model: Trained PINN model
-        test_config: Test configuration object
-        save_path: Directory to save CSV files
+    Run comprehensive inference session using trained model
     """
-    print("\nExporting PDE residuals to CSV...")
-    
-    # Create sample points for residual evaluation
-    n_sample = 1000
-    x_sample = torch.rand(n_sample, 1, device=test_config.DEVICE) * (test_config.X_MAX - test_config.X_MIN) + test_config.X_MIN
-    y_sample = torch.rand(n_sample, 1, device=test_config.DEVICE) * (test_config.Y_MAX - test_config.Y_MIN) + test_config.Y_MIN
-    
-    x_sample.requires_grad_(True)
-    y_sample.requires_grad_(True)
-    
-    # Calculate residuals
-    residuals = model.pde_residual(x_sample, y_sample)
-    
-    # Create DataFrame
-    df = pd.DataFrame({
-        'x': x_sample.detach().cpu().numpy().flatten(),
-        'y': y_sample.detach().cpu().numpy().flatten(),
-        'momentum_x_residual': residuals['momentum_x'].detach().cpu().numpy().flatten(),
-        'momentum_y_residual': residuals['momentum_y'].detach().cpu().numpy().flatten(),
-        'continuity_residual': residuals['continuity'].detach().cpu().numpy().flatten(),
-        'total_residual_magnitude': (residuals['momentum_x']**2 + residuals['momentum_y']**2 + residuals['continuity']**2).sqrt().detach().cpu().numpy().flatten()
-    })
-    
-    filepath = os.path.join(save_path, 'pde_residuals.csv')
-    df.to_csv(filepath, index=False)
-    print(f"Saved PDE residuals to pde_residuals.csv")
-
-def run_model_test(model, test_config, model_path, output_suffix="test", 
-                  export_flow_field=True, export_boundary=True, export_centerline=True,
-                  export_viscosity=True, export_residuals=True):
-    """
-    Run comprehensive model testing with CSV export
-    
-    Args:
-        model: Loaded PINN model
-        test_config: Test configuration object
-        model_path: Path to the model file (for reporting)
-        output_suffix: Suffix for output directory
-        export_flow_field: Whether to export flow field data
-        export_boundary: Whether to export boundary data
-        export_centerline: Whether to export centerline data
-        export_viscosity: Whether to export viscosity profile
-        export_residuals: Whether to export PDE residuals
-        
-    Returns:
-        Tuple of (metrics, exported_files)
-    """
-    
     print("\n" + "="*70)
-    print(f"Running Model Test: {getattr(test_config, 'name', 'Custom Configuration')}")
+    print(f"Running Inference Session: {inference_config.name}")
     print("="*70)
     
-    # Print test configuration
-    print("\nTest Configuration:")
+    # Print inference configuration
+    print("\nInference Configuration:")
     config_params = [
-        ('Reynolds Number', 'REYNOLDS_NUMBER'),
-        ('Base Viscosity', 'NU_BASE_TRUE'),
-        ('Viscosity Parameter a', 'A_TRUE'),
-        ('Max Inlet Velocity', 'U_MAX_INLET'),
-        ('Domain Width (X_MAX)', 'X_MAX'),
-        ('Domain Height (Y_MAX)', 'Y_MAX'),
-        ('Collocation Points', 'N_COLLOCATION'),
-        ('Boundary Points', 'N_BOUNDARY'),
-        ('Sparse Data Points', 'N_DATA_SPARSE'),
-        ('Fourier Features', 'USE_FOURIER_FEATURES'),
-        ('Adaptive Weights', 'USE_ADAPTIVE_WEIGHTS'),
-        ('Adaptive Sampling', 'USE_ADAPTIVE_SAMPLING'),
-        ('Curriculum Learning', 'USE_CURRICULUM_LEARNING')
+        ('Model Path', model_path),
+        ('Learned Viscosity Parameter', f"{model.get_inferred_viscosity_param():.6f}"),
+        ('Reynolds Number', inference_config.REYNOLDS_NUMBER),
+        ('Base Viscosity', inference_config.NU_BASE_TRUE),
+        ('Reference Viscosity Parameter', getattr(inference_config, 'A_TRUE', 'Not provided')),
+        ('Max Inlet Velocity', inference_config.U_MAX_INLET),
+        ('Domain Width', inference_config.X_MAX),
+        ('Domain Height', inference_config.Y_MAX),
+        ('Grid Resolution', f"{inference_config.N_GRID_X} x {inference_config.N_GRID_Y}"),
+        ('Fourier Features', inference_config.USE_FOURIER_FEATURES),
+        ('Adaptive Weights', inference_config.USE_ADAPTIVE_WEIGHTS)
     ]
     
-    for display_name, param_name in config_params:
-        if hasattr(test_config, param_name):
-            value = getattr(test_config, param_name)
-            print(f"  {display_name}: {value}")
+    for param_name, param_value in config_params:
+        print(f"  {param_name}: {param_value}")
     
-    # Create output directory for this test
-    base_output_dir = test_config.OUTPUT_DIR
-    test_output_dir = os.path.join(base_output_dir, f"interactive_{output_suffix}")
-    test_config.OUTPUT_DIR = test_output_dir
-    os.makedirs(test_output_dir, exist_ok=True)
+    # Create output directory
+    base_output_dir = inference_config.OUTPUT_DIR
+    inference_output_dir = os.path.join(base_output_dir, f"inference_{output_suffix}")
+    inference_config.OUTPUT_DIR = inference_output_dir
+    os.makedirs(inference_output_dir, exist_ok=True)
     
-    print(f"\nTest results will be saved to: {test_output_dir}")
+    print(f"\nInference results will be saved to: {inference_output_dir}")
     
-    # Initialize return variables
-    metrics = None
-    exported_files = []
+    # Run comprehensive inference
+    start_time = time.time()
     
-    try:
-        # Generate test data with the new configuration
-        print("\nGenerating test data...")
-        start_time = time.time()
-        
-        collocation_points = generate_collocation_points(test_config)
-        boundary_points = generate_boundary_points(test_config)
-        sparse_data = generate_sparse_data_points(test_config)
-        
-        print(f"Data generation completed in {time.time() - start_time:.2f}s")
-        
-        # Evaluate model performance
-        print("\nEvaluating model performance...")
-        eval_start = time.time()
-        
-        metrics = evaluate_model(model, test_config)
-        
-        print(f"Model evaluation completed in {time.time() - eval_start:.2f}s")
-        
-        # Export CSV data
-        print("\nExporting data to CSV files...")
-        export_start = time.time()
-        
-        # Export flow field data
-        if export_flow_field:
-            flow_data = export_flow_field_csv(model, test_config, test_output_dir)
-            exported_files.extend(flow_data['files_created'])
-        
-        # Export boundary data
-        if export_boundary:
-            export_boundary_data_csv(model, test_config, test_output_dir)
-            exported_files.extend([f'boundary_{name}.csv' for name in ['inlet', 'outlet', 'walls']])
-        
-        # Export centerline data
-        if export_centerline:
-            export_centerline_data_csv(model, test_config, test_output_dir)
-            exported_files.append('centerline_profile.csv')
-        
-        # Export viscosity profile
-        if export_viscosity:
-            export_viscosity_profile_csv(model, test_config, test_output_dir)
-            exported_files.append('viscosity_profile.csv')
-        
-        # Export model metrics
-        export_model_metrics_csv(model, test_config, metrics, test_output_dir)
-        exported_files.append('model_metrics.csv')
-        
-        # Export PDE residuals
-        if export_residuals:
-            export_pde_residuals_csv(model, test_config, test_output_dir)
-            exported_files.append('pde_residuals.csv')
-        
-        print(f"CSV export completed in {time.time() - export_start:.2f}s")
-        
-        # Generate test report
-        generate_test_report(model, test_config, metrics, model_path, test_output_dir)
-        exported_files.append('test_report.json')
-        exported_files.append('test_report.txt')
-        
-        print("\n" + "="*70)
-        print("Model Testing Complete!")
-        print("="*70)
-        
-        # Print key results
-        print_test_results(model, test_config, metrics)
-        
-        # Print exported files
-        print(f"\nExported CSV files:")
-        for filename in exported_files:
-            print(f"  - {filename}")
-        
-        return metrics, exported_files
-        
-    except Exception as e:
-        print(f"\nError during model testing: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return metrics, exported_files
+    print("\n1. Inferring 3D flow field data...")
+    flow_results = infer_3d_flow_field(model, inference_config, inference_output_dir)
+    
+    print("\n2. Inferring boundary behavior...")
+    boundary_results = infer_boundary_analysis(model, inference_config, inference_output_dir)
+    
+    print("\n3. Inferring centerline flow...")
+    centerline_results = infer_centerline_analysis(model, inference_config, inference_output_dir)
+    
+    print("\n4. Inferring viscosity profile...")
+    viscosity_results = infer_viscosity_profile(model, inference_config, inference_output_dir)
+    
+    print("\n5. Exporting inference summary...")
+    summary_results = export_inference_summary(model, inference_config, flow_results, inference_output_dir)
+    
+    total_time = time.time() - start_time
+    
+    print("\n" + "="*70)
+    print("Inference Session Complete!")
+    print("="*70)
+    
+    # Print results summary
+    print(f"\nInference Results:")
+    print(f"  Learned viscosity parameter: {model.get_inferred_viscosity_param():.6f}")
+    print(f"  Total inference points: {flow_results['total_points']:,}")
+    print(f"  Grid resolution: {flow_results['grid_size'][0]} x {flow_results['grid_size'][1]}")
+    print(f"  Processing time: {total_time:.2f}s")
+    
+    if 'inference_accuracy' in summary_results:
+        print(f"  Inference accuracy: {summary_results['inference_accuracy']['relative_error_percent']:.2f}% error")
+    
+    print(f"\nGenerated CSV files for 3D plotting:")
+    for filename in flow_results['files_created']:
+        print(f"  - {filename}")
+    
+    return {
+        'flow_results': flow_results,
+        'boundary_results': boundary_results,
+        'centerline_results': centerline_results,
+        'viscosity_results': viscosity_results,
+        'summary_results': summary_results,
+        'total_time': total_time
+    }
 
-def print_test_results(model, test_config, metrics):
-    """Print key test results"""
-    print(f"\nKey Results:")
-    print(f"  True viscosity parameter 'a': {test_config.A_TRUE:.6f}")
-    print(f"  Inferred viscosity parameter 'a': {model.get_inferred_viscosity_param():.6f}")
-    print(f"  Absolute error: {metrics['abs_error']:.6f}")
-    print(f"  Relative error: {metrics['rel_error']:.2f}%")
-    print(f"  Reynolds number: {test_config.REYNOLDS_NUMBER}")
-    
-    print(f"\nPDE Residuals (Mean Absolute):")
-    for key, value in metrics['pde_residuals'].items():
-        print(f"  {key}: {value:.6e}")
-    
-    # Performance assessment
-    rel_error = metrics['rel_error']
-    if rel_error < 1.0:
-        assessment = "Excellent"
-    elif rel_error < 5.0:
-        assessment = "Good"
-    elif rel_error < 15.0:
-        assessment = "Acceptable"
-    else:
-        assessment = "Poor"
-    
-    print(f"\nPerformance Assessment: {assessment} ({rel_error:.2f}% error)")
-
-def get_interactive_config():
-    """Interactive function to get configuration from user input"""
+def get_interactive_parameters():
+    """Interactive function to get inference parameters from user"""
     print("\n" + "="*60)
-    print("Interactive Configuration Setup")
+    print("Interactive Inference Parameter Setup")
     print("="*60)
-    print("Enter parameters (press Enter to use default values)")
+    print("Enter parameters for inference (press Enter to use defaults)")
     
-    config_params = {}
+    params = {}
     
     # Physics parameters
     print("\n--- Physics Parameters ---")
-    
     reynolds = input(f"Reynolds Number (default: {cfg.REYNOLDS_NUMBER}): ")
     if reynolds.strip():
-        config_params['reynolds_number'] = float(reynolds)
+        params['reynolds_number'] = float(reynolds)
     
     nu_base = input(f"Base Viscosity (default: {cfg.NU_BASE_TRUE}): ")
     if nu_base.strip():
-        config_params['nu_base_true'] = float(nu_base)
-    
-    a_true = input(f"Viscosity Variation Parameter 'a' (default: {cfg.A_TRUE}): ")
-    if a_true.strip():
-        config_params['a_true'] = float(a_true)
+        params['nu_base_true'] = float(nu_base)
     
     u_max = input(f"Maximum Inlet Velocity (default: {cfg.U_MAX_INLET}): ")
     if u_max.strip():
-        config_params['u_max_inlet'] = float(u_max)
+        params['u_max_inlet'] = float(u_max)
     
     # Domain parameters
     print("\n--- Domain Parameters ---")
-    
     x_max = input(f"Domain Width X_MAX (default: {cfg.X_MAX}): ")
     if x_max.strip():
-        config_params['x_max'] = float(x_max)
+        params['x_max'] = float(x_max)
     
     y_max = input(f"Domain Height Y_MAX (default: {cfg.Y_MAX}): ")
     if y_max.strip():
-        config_params['y_max'] = float(y_max)
+        params['y_max'] = float(y_max)
     
-    # Computational parameters
-    print("\n--- Computational Parameters ---")
+    # Grid resolution
+    print("\n--- Grid Resolution ---")
+    n_grid_x = input(f"Grid points in X direction (default: 100): ")
+    if n_grid_x.strip():
+        params['n_grid_x'] = int(n_grid_x)
     
-    n_collocation = input(f"Collocation Points (default: {cfg.N_COLLOCATION}): ")
-    if n_collocation.strip():
-        config_params['n_collocation'] = int(n_collocation)
+    n_grid_y = input(f"Grid points in Y direction (default: 50): ")
+    if n_grid_y.strip():
+        params['n_grid_y'] = int(n_grid_y)
     
-    n_boundary = input(f"Boundary Points per edge (default: {cfg.N_BOUNDARY}): ")
-    if n_boundary.strip():
-        config_params['n_boundary'] = int(n_boundary)
+    # Reference parameters (for comparison)
+    print("\n--- Reference Parameters (for comparison) ---")
+    a_true = input(f"Reference viscosity parameter 'a' (optional): ")
+    if a_true.strip():
+        params['a_true'] = float(a_true)
     
-    n_data_sparse = input(f"Sparse Data Points (default: {cfg.N_DATA_SPARSE}): ")
-    if n_data_sparse.strip():
-        config_params['n_data_sparse'] = int(n_data_sparse)
-    
-    # Advanced features
-    print("\n--- Advanced Features ---")
-    
-    fourier = input(f"Use Fourier Features? (y/n, default: {'y' if cfg.USE_FOURIER_FEATURES else 'n'}): ")
-    if fourier.lower() in ['y', 'yes']:
-        config_params['use_fourier_features'] = True
-        fourier_scale = input(f"Fourier Scale (default: {cfg.FOURIER_SCALE}): ")
-        if fourier_scale.strip():
-            config_params['fourier_scale'] = float(fourier_scale)
-    elif fourier.lower() in ['n', 'no']:
-        config_params['use_fourier_features'] = False
-    
-    adaptive_weights = input(f"Use Adaptive Weights? (y/n, default: {'y' if cfg.USE_ADAPTIVE_WEIGHTS else 'n'}): ")
-    if adaptive_weights.lower() in ['y', 'yes']:
-        config_params['use_adaptive_weights'] = True
-    elif adaptive_weights.lower() in ['n', 'no']:
-        config_params['use_adaptive_weights'] = False
-    
-    adaptive_sampling = input(f"Use Adaptive Sampling? (y/n, default: {'y' if cfg.USE_ADAPTIVE_SAMPLING else 'n'}): ")
-    if adaptive_sampling.lower() in ['y', 'yes']:
-        config_params['use_adaptive_sampling'] = True
-    elif adaptive_sampling.lower() in ['n', 'no']:
-        config_params['use_adaptive_sampling'] = False
-    
-    # Test name
-    test_name = input("\nTest Name (default: 'Interactive Test'): ")
-    if test_name.strip():
-        config_params['name'] = test_name
+    # Session name
+    session_name = input("\nInference session name (default: 'Interactive Inference'): ")
+    if session_name.strip():
+        params['name'] = session_name
     else:
-        config_params['name'] = 'Interactive Test'
+        params['name'] = 'Interactive Inference'
     
-    return config_params
+    return params
 
-def run_multiple_tests(model_path, test_configurations, output_base="multi_test"):
+def run_multiple_inference_scenarios(model_path, inference_scenarios, output_base="multi_inference"):
     """
-    Run multiple test configurations on the same model
-    
-    Args:
-        model_path: Path to the model file
-        test_configurations: List of configuration parameter dictionaries
-        output_base: Base name for output directories
-        
-    Returns:
-        List of test results
+    Run multiple inference scenarios on the same trained model
     """
     print(f"\n" + "="*70)
-    print(f"Running Multiple Tests on Model: {model_path}")
-    print(f"Number of test configurations: {len(test_configurations)}")
+    print(f"Running Multiple Inference Scenarios")
+    print(f"Model: {model_path}")
+    print(f"Number of scenarios: {len(inference_scenarios)}")
     print("="*70)
     
     all_results = []
     
-    for i, config_params in enumerate(test_configurations):
+    for i, scenario_params in enumerate(inference_scenarios):
         print(f"\n{'='*50}")
-        print(f"Test {i+1}/{len(test_configurations)}")
+        print(f"Inference Scenario {i+1}/{len(inference_scenarios)}")
         print(f"{'='*50}")
         
-        # Create test configuration
-        test_config = create_test_config(**config_params)
+        # Create inference configuration
+        inference_config = create_inference_config(**scenario_params)
         
         # Load model
-        model, test_config = load_model_with_config(model_path, test_config)
+        model, inference_config = load_trained_model(model_path, inference_config)
         
-        # Run test
+        # Run inference
         output_suffix = f"{output_base}_{i+1:02d}"
-        if 'name' in config_params:
-            output_suffix += f"_{config_params['name'].replace(' ', '_')}"
+        if 'name' in scenario_params:
+            output_suffix += f"_{scenario_params['name'].replace(' ', '_')}"
         
-        metrics, exported_files = run_model_test(model, test_config, model_path, output_suffix)
+        results = run_inference_session(model, inference_config, model_path, output_suffix)
         
         # Store results
-        result = {
-            'test_index': i+1,
-            'config_params': config_params,
-            'metrics': metrics,
-            'exported_files': exported_files,
+        scenario_result = {
+            'scenario_index': i+1,
+            'scenario_params': scenario_params,
+            'inference_results': results,
             'output_suffix': output_suffix
         }
-        all_results.append(result)
+        all_results.append(scenario_result)
     
     # Generate summary report
-    generate_multi_test_summary(all_results, model_path, output_base)
+    generate_multi_inference_summary(all_results, model_path, output_base)
     
     return all_results
 
-def generate_multi_test_summary(all_results, model_path, output_base):
-    """Generate summary report for multiple tests as CSV"""
+def generate_multi_inference_summary(all_results, model_path, output_base):
+    """Generate summary report for multiple inference scenarios"""
     summary_dir = os.path.join(cfg.OUTPUT_DIR, f"summary_{output_base}")
     os.makedirs(summary_dir, exist_ok=True)
     
     print(f"\n" + "="*70)
-    print("Multi-Test Summary")
+    print("Multi-Inference Summary")
     print("="*70)
     
-    # Prepare data for CSV
+    # Prepare summary data
     summary_data = []
     
     for result in all_results:
-        if result['metrics'] is not None:
-            test_summary = {
-                'test_index': result['test_index'],
-                'test_name': result['config_params'].get('name', f"Test {result['test_index']}"),
-                'reynolds_number': result['config_params'].get('reynolds_number', cfg.REYNOLDS_NUMBER),
-                'a_true': result['config_params'].get('a_true', cfg.A_TRUE),
-                'relative_error_percent': result['metrics']['rel_error'],
-                'absolute_error': result['metrics']['abs_error'],
-                'inferred_a': result['metrics']['inferred_a'],
-                'momentum_x_residual': result['metrics']['pde_residuals']['momentum_x'],
-                'momentum_y_residual': result['metrics']['pde_residuals']['momentum_y'],
-                'continuity_residual': result['metrics']['pde_residuals']['continuity'],
-                'output_directory': result['output_suffix']
-            }
-            summary_data.append(test_summary)
-            
-            print(f"Test {result['test_index']}: {test_summary['test_name']}")
-            print(f"  Re={test_summary['reynolds_number']}, a_true={test_summary['a_true']:.4f}")
-            print(f"  Error: {test_summary['relative_error_percent']:.2f}%")
+        scenario_summary = {
+            'scenario_index': result['scenario_index'],
+            'scenario_name': result['scenario_params'].get('name', f"Scenario {result['scenario_index']}"),
+            'learned_viscosity_param': result['inference_results']['summary_results']['inference_info']['learned_viscosity_param'],
+            'reynolds_number': result['inference_results']['summary_results']['inference_info']['reynolds_number'],
+            'total_points': result['inference_results']['summary_results']['inference_info']['total_inference_points'],
+            'grid_resolution': f"{result['inference_results']['flow_results']['grid_size'][0]}x{result['inference_results']['flow_results']['grid_size'][1]}",
+            'processing_time': result['inference_results']['total_time'],
+            'output_directory': result['output_suffix']
+        }
+        
+        # Add accuracy if available
+        if 'inference_accuracy' in result['inference_results']['summary_results']:
+            scenario_summary['relative_error_percent'] = result['inference_results']['summary_results']['inference_accuracy']['relative_error_percent']
+        else:
+            scenario_summary['relative_error_percent'] = None
+        
+        summary_data.append(scenario_summary)
+        
+        print(f"Scenario {result['scenario_index']}: {scenario_summary['scenario_name']}")
+        print(f"  Learned viscosity param: {scenario_summary['learned_viscosity_param']:.6f}")
+        print(f"  Points processed: {scenario_summary['total_points']:,}")
     
     # Save summary as CSV
-    if summary_data:
-        df = pd.DataFrame(summary_data)
-        summary_path = os.path.join(summary_dir, 'multi_test_summary.csv')
-        df.to_csv(summary_path, index=False)
-        print(f"\nSummary CSV saved to: {summary_path}")
-        
-        # Also save as JSON for backward compatibility
-        json_data = {
-            'model_path': model_path,
-            'test_time': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'total_tests': len(all_results),
-            'test_results': summary_data
-        }
-        
-        json_path = os.path.join(summary_dir, 'multi_test_summary.json')
-        with open(json_path, 'w') as f:
-            json.dump(json_data, f, indent=2)
-        print(f"Summary JSON saved to: {json_path}")
-
-def generate_test_report(model, test_config, metrics, model_path, output_dir):
-    """Generate a comprehensive test report"""
+    df = pd.DataFrame(summary_data)
+    summary_path = os.path.join(summary_dir, 'multi_inference_summary.csv')
+    df.to_csv(summary_path, index=False)
+    print(f"\nSummary CSV saved to: {summary_path}")
     
-    report_data = {
-        'test_info': {
-            'model_path': model_path,
-            'test_time': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'test_name': getattr(test_config, 'name', 'Custom Test'),
-            'output_directory': output_dir
-        },
-        'configuration': {
-            'reynolds_number': test_config.REYNOLDS_NUMBER,
-            'nu_base_true': test_config.NU_BASE_TRUE,
-            'a_true': test_config.A_TRUE,
-            'u_max_inlet': test_config.U_MAX_INLET,
-            'domain_x_max': test_config.X_MAX,
-            'domain_y_max': test_config.Y_MAX,
-            'domain_x_min': test_config.X_MIN,
-            'domain_y_min': test_config.Y_MIN,
-            'use_fourier_features': test_config.USE_FOURIER_FEATURES,
-            'use_adaptive_weights': test_config.USE_ADAPTIVE_WEIGHTS,
-            'use_adaptive_sampling': test_config.USE_ADAPTIVE_SAMPLING,
-            'use_curriculum_learning': test_config.USE_CURRICULUM_LEARNING,
-            'collocation_points': test_config.N_COLLOCATION,
-            'boundary_points': test_config.N_BOUNDARY,
-            'sparse_data_points': test_config.N_DATA_SPARSE
-        },
-        'results': {
-            'inferred_viscosity_param': model.get_inferred_viscosity_param(),
-            'true_viscosity_param': test_config.A_TRUE,
-            'absolute_error': metrics['abs_error'],
-            'relative_error_percent': metrics['rel_error'],
-            'pde_residuals': metrics['pde_residuals']
-        },
-        'model_info': {
-            'architecture': test_config.PINN_LAYERS,
-            'device': str(model.device),
-            'total_parameters': sum(p.numel() for p in model.parameters())
-        }
+    # Save detailed JSON summary
+    json_data = {
+        'model_path': model_path,
+        'inference_time': time.strftime('%Y-%m-%d %H:%M:%S'),
+        'total_scenarios': len(all_results),
+        'scenario_results': summary_data
     }
     
-    # Save report as JSON
-    report_path = os.path.join(output_dir, 'test_report.json')
-    with open(report_path, 'w') as f:
-        json.dump(report_data, f, indent=2)
-    
-    # Save report as text
-    text_report_path = os.path.join(output_dir, 'test_report.txt')
-    with open(text_report_path, 'w') as f:
-        f.write("PINN Model Interactive Test Report\n")
-        f.write("=" * 50 + "\n\n")
-        
-        f.write(f"Test Name: {report_data['test_info']['test_name']}\n")
-        f.write(f"Test Date: {report_data['test_info']['test_time']}\n")
-        f.write(f"Model Path: {report_data['test_info']['model_path']}\n\n")
-        
-        f.write("Configuration:\n")
-        f.write("-" * 20 + "\n")
-        for key, value in report_data['configuration'].items():
-            f.write(f"{key}: {value}\n")
-        
-        f.write(f"\nResults:\n")
-        f.write("-" * 20 + "\n")
-        f.write(f"True viscosity parameter: {report_data['results']['true_viscosity_param']:.6f}\n")
-        f.write(f"Inferred viscosity parameter: {report_data['results']['inferred_viscosity_param']:.6f}\n")
-        f.write(f"Absolute error: {report_data['results']['absolute_error']:.6f}\n")
-        f.write(f"Relative error: {report_data['results']['relative_error_percent']:.2f}%\n")
-        
-        f.write(f"\nPDE Residuals:\n")
-        f.write("-" * 20 + "\n")
-        for key, value in report_data['results']['pde_residuals'].items():
-            f.write(f"{key}: {value:.6e}\n")
-    
-    print(f"Test report saved to: {report_path}")
+    json_path = os.path.join(summary_dir, 'multi_inference_summary.json')
+    with open(json_path, 'w') as f:
+        json.dump(json_data, f, indent=2)
+    print(f"Summary JSON saved to: {json_path}")
 
 def main():
-    """Main function with example test scenarios"""
+    """Main function for inference scenarios"""
     # Hardcoded model path
     DEFAULT_MODEL_PATH = "/home/brand/pinn_viscosity/backend/results/trained_model.pth"
     
-    parser = argparse.ArgumentParser(description="Interactive PINN Model Testing - CSV Export Version")
+    parser = argparse.ArgumentParser(description="Interactive PINN Model Inference - 3D CSV Export")
     parser.add_argument("--model", default=DEFAULT_MODEL_PATH, help=f"Path to the trained model file (default: {DEFAULT_MODEL_PATH})")
-    parser.add_argument("--interactive", action="store_true", help="Use interactive mode for configuration")
-    parser.add_argument("--inspect", action="store_true", help="Just inspect the saved model configuration and exit")
+    parser.add_argument("--interactive", action="store_true", help="Use interactive mode for parameter selection")
     
     # Physics parameters
     parser.add_argument("--reynolds", type=float, help="Reynolds number")
     parser.add_argument("--viscosity-base", type=float, help="Base viscosity")
-    parser.add_argument("--viscosity-param", type=float, help="Viscosity variation parameter 'a'")
+    parser.add_argument("--viscosity-param-ref", type=float, help="Reference viscosity parameter 'a' (for comparison)")
     parser.add_argument("--inlet-velocity", type=float, help="Maximum inlet velocity")
     
     # Domain parameters
     parser.add_argument("--domain-width", type=float, help="Domain width (X_MAX)")
     parser.add_argument("--domain-height", type=float, help="Domain height (Y_MAX)")
     
-    # Computational parameters
-    parser.add_argument("--collocation-points", type=int, help="Number of collocation points")
-    parser.add_argument("--boundary-points", type=int, help="Number of boundary points per edge")
-    parser.add_argument("--sparse-data-points", type=int, help="Number of sparse data points")
-    
-    # Advanced features
-    parser.add_argument("--fourier", action="store_true", help="Use Fourier features")
-    parser.add_argument("--adaptive-weights", action="store_true", help="Use adaptive weights")
-    parser.add_argument("--adaptive-sampling", action="store_true", help="Use adaptive sampling")
+    # Grid parameters
+    parser.add_argument("--grid-x", type=int, default=100, help="Grid points in X direction")
+    parser.add_argument("--grid-y", type=int, default=50, help="Grid points in Y direction")
     
     # Output options
-    parser.add_argument("--output-suffix", default="test", help="Output directory suffix")
-    parser.add_argument("--no-flow-field", action="store_true", help="Skip flow field export")
-    parser.add_argument("--no-boundary", action="store_true", help="Skip boundary data export")
-    parser.add_argument("--no-centerline", action="store_true", help="Skip centerline export")
-    parser.add_argument("--no-viscosity", action="store_true", help="Skip viscosity profile export")
-    parser.add_argument("--no-residuals", action="store_true", help="Skip PDE residuals export")
+    parser.add_argument("--output-suffix", default="inference", help="Output directory suffix")
     
-    # Test scenarios
-    parser.add_argument("--run-scenarios", action="store_true", help="Run predefined test scenarios")
+    # Predefined scenarios
+    parser.add_argument("--run-scenarios", action="store_true", help="Run predefined inference scenarios")
     
     args = parser.parse_args()
     
-    print(f"Using model: {args.model}")
+    print(f"Using trained model: {args.model}")
     
     # Check if model file exists
     if not os.path.exists(args.model):
@@ -1081,143 +849,95 @@ def main():
         print("You can train a model by running: python main.py")
         return
     
-    if args.inspect:
-        # Just inspect the model and exit
-        print("\n" + "="*60)
-        print("Model Inspection")
-        print("="*60)
-        
-        try:
-            model_info = inspect_saved_model(args.model)
-            
-            print(f"Model Path: {model_info['model_path']}")
-            print(f"Has Configuration: {model_info['has_config']}")
-            print(f"Has Model State: {model_info['has_model_state']}")
-            print(f"Inferred 'a' Parameter: {model_info['inferred_a_param']}")
-            print(f"Has Adaptive Weights: {model_info.get('has_adaptive_weights', 'Unknown')}")
-            print(f"Has Fourier Features: {model_info.get('has_fourier_features', 'Unknown')}")
-            
-            if 'saved_config' in model_info:
-                print(f"\nSaved Configuration:")
-                for key, value in model_info['saved_config'].items():
-                    print(f"  {key}: {value}")
-            
-            if 'inferred_layers' in model_info:
-                print(f"\nInferred Network Architecture:")
-                for layer_info in model_info['inferred_layers']:
-                    print(f"  {layer_info}")
-                    
-        except Exception as e:
-            print(f"Error inspecting model: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        return
-    
     if args.interactive:
         # Interactive mode
-        config_params = get_interactive_config()
-        test_config = create_test_config(**config_params)
-        model, test_config = load_model_with_config(args.model, test_config)
+        params = get_interactive_parameters()
+        inference_config = create_inference_config(**params)
+        model, inference_config = load_trained_model(args.model, inference_config)
         
-        run_model_test(
-            model, test_config, args.model, args.output_suffix,
-            export_flow_field=not args.no_flow_field,
-            export_boundary=not args.no_boundary,
-            export_centerline=not args.no_centerline,
-            export_viscosity=not args.no_viscosity,
-            export_residuals=not args.no_residuals
-        )
+        run_inference_session(model, inference_config, args.model, args.output_suffix)
     
     elif args.run_scenarios:
         # Run multiple predefined scenarios
-        test_scenarios = [
-            # Low Reynolds number test
+        inference_scenarios = [
+            # Low Reynolds number scenario
             {
                 'reynolds_number': 10,
                 'a_true': 0.02,
                 'nu_base_true': 0.05,
                 'u_max_inlet': 0.5,
-                'name': 'Low_Re_Test'
+                'n_grid_x': 150,
+                'n_grid_y': 75,
+                'name': 'Low_Re_HighRes'
             },
-            # Medium Reynolds number test
+            # Medium Reynolds number scenario
             {
                 'reynolds_number': 100,
                 'a_true': 0.05,
                 'nu_base_true': 0.01,
                 'u_max_inlet': 1.0,
-                'name': 'Medium_Re_Test'
+                'n_grid_x': 200,
+                'n_grid_y': 100,
+                'name': 'Medium_Re_HighRes'
             },
-            # High Reynolds number test
+            # High Reynolds number scenario
             {
                 'reynolds_number': 200,
                 'a_true': 0.08,
                 'nu_base_true': 0.005,
                 'u_max_inlet': 2.0,
-                'name': 'High_Re_Test'
+                'n_grid_x': 250,
+                'n_grid_y': 125,
+                'name': 'High_Re_UltraRes'
             },
-            # Wide domain test
+            # Wide domain scenario
             {
                 'reynolds_number': 50,
                 'a_true': 0.05,
                 'x_max': 4.0,
-                'name': 'Wide_Domain_Test'
+                'n_grid_x': 300,
+                'n_grid_y': 75,
+                'name': 'Wide_Domain_HighRes'
             },
-            # Tall domain test
+            # Fine grid scenario
             {
                 'reynolds_number': 75,
                 'a_true': 0.06,
-                'y_max': 2.0,
-                'name': 'Tall_Domain_Test'
+                'n_grid_x': 400,
+                'n_grid_y': 200,
+                'name': 'Ultra_Fine_Grid'
             }
         ]
         
-        run_multiple_tests(args.model, test_scenarios, "scenarios")
+        run_multiple_inference_scenarios(args.model, inference_scenarios, "scenarios")
     
     else:
-        # Single test with command line parameters
-        config_params = {}
+        # Single inference with command line parameters
+        params = {}
         
-        # Map command line arguments to config parameters
+        # Map command line arguments to parameters
         if args.reynolds is not None:
-            config_params['reynolds_number'] = args.reynolds
+            params['reynolds_number'] = args.reynolds
         if args.viscosity_base is not None:
-            config_params['nu_base_true'] = args.viscosity_base
-        if args.viscosity_param is not None:
-            config_params['a_true'] = args.viscosity_param
+            params['nu_base_true'] = args.viscosity_base
+        if args.viscosity_param_ref is not None:
+            params['a_true'] = args.viscosity_param_ref
         if args.inlet_velocity is not None:
-            config_params['u_max_inlet'] = args.inlet_velocity
+            params['u_max_inlet'] = args.inlet_velocity
         if args.domain_width is not None:
-            config_params['x_max'] = args.domain_width
+            params['x_max'] = args.domain_width
         if args.domain_height is not None:
-            config_params['y_max'] = args.domain_height
-        if args.collocation_points is not None:
-            config_params['n_collocation'] = args.collocation_points
-        if args.boundary_points is not None:
-            config_params['n_boundary'] = args.boundary_points
-        if args.sparse_data_points is not None:
-            config_params['n_data_sparse'] = args.sparse_data_points
-        if args.fourier:
-            config_params['use_fourier_features'] = True
-        if args.adaptive_weights:
-            config_params['use_adaptive_weights'] = True
-        if args.adaptive_sampling:
-            config_params['use_adaptive_sampling'] = True
+            params['y_max'] = args.domain_height
         
-        config_params['name'] = 'Command_Line_Test'
+        params['n_grid_x'] = args.grid_x
+        params['n_grid_y'] = args.grid_y
+        params['name'] = 'Command_Line_Inference'
         
-        # Create and run test
-        test_config = create_test_config(**config_params)
-        model, test_config = load_model_with_config(args.model, test_config)
+        # Create and run inference
+        inference_config = create_inference_config(**params)
+        model, inference_config = load_trained_model(args.model, inference_config)
         
-        run_model_test(
-            model, test_config, args.model, args.output_suffix,
-            export_flow_field=not args.no_flow_field,
-            export_boundary=not args.no_boundary,
-            export_centerline=not args.no_centerline,
-            export_viscosity=not args.no_viscosity,
-            export_residuals=not args.no_residuals
-        )
+        run_inference_session(model, inference_config, args.model, args.output_suffix)
 
 if __name__ == "__main__":
     main()
