@@ -6,8 +6,16 @@ const FluidViscosityExplainer = () => {
   const [isScrolled, setIsScrolled] = useState(false)
   const [selectedLevel, setSelectedLevel] = useState('')
   const [showContent, setShowContent] = useState(false)
+  const [isClient, setIsClient] = useState(false)
+
+  // Fix hydration by ensuring client-side rendering
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   useEffect(() => {
+    if (!isClient) return
+    
     const handleScroll = () => {
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop
       setIsScrolled(scrollTop > 50)
@@ -15,9 +23,159 @@ const FluidViscosityExplainer = () => {
 
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+  }, [isClient])
+  
+  // Load Plotly and create plots only on client side
+  useEffect(() => {
+    if (!isClient || typeof window === 'undefined') return
+    
+    // Load d3 first, then Plotly
+    const loadScript = (src: any) => {
+      return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+          resolve(void 0)
+          return
+        }
+        const script = document.createElement('script')
+        script.src = src
+        script.onload = resolve
+        script.onerror = reject
+        document.head.appendChild(script)
+      })
+    }
 
-  const handleLevelSelect = (level: 'beginner' | 'intermediate' | 'expert') => {
+    const initializePlots = async () => {
+      try {
+        // Load d3 if not already loaded
+        if (!window.d3) {
+          await loadScript('https://d3js.org/d3.v5.min.js')
+        }
+        
+        // Dynamically import Plotly
+        const PlotlyModule = await import('plotly.js-dist')
+        const Plotly = PlotlyModule.default
+        
+        // Create sample data for plots since external CSV might not load
+        const createSampleData = () => {
+          const size = 20
+          const data = []
+          for (let i = 0; i < size; i++) {
+            const row = []
+            for (let j = 0; j < size; j++) {
+              row.push(Math.sin(i * 0.3) * Math.cos(j * 0.3) * 10 + Math.random() * 2)
+            }
+            data.push(row)
+          }
+          return data
+        }
+
+        // Topographical Plot
+        const z_data = createSampleData()
+        const data1 = [{
+          z: z_data,
+          type: 'surface',
+          colorscale: 'Viridis'
+        }]
+        
+        const layout1 = {
+          title: {
+            text: 'Sample 3D Surface Plot',
+            font: { color: 'white' }
+          },
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)',
+          scene: {
+            bgcolor: 'rgba(0,0,0,0)',
+            xaxis: { gridcolor: 'white', color: 'white' },
+            yaxis: { gridcolor: 'white', color: 'white' },
+            zaxis: { gridcolor: 'white', color: 'white' }
+          },
+          autosize: true,
+          margin: { l: 0, r: 0, b: 0, t: 50 }
+        }
+        
+        if (document.getElementById('topographicalPlot')) {
+          Plotly.newPlot('topographicalPlot', data1, layout1, { responsive: true })
+        }
+        
+        // Contour Plot
+        const data2 = [{
+          z: z_data,
+          type: 'surface',
+          colorscale: 'Electric',
+          contours: {
+            z: {
+              show: true,
+              usecolormap: true,
+              highlightcolor: "#42f462",
+              project: { z: true }
+            }
+          }
+        }]
+        
+        const layout2 = {
+          title: {
+            text: 'Surface Plot With Contours',
+            font: { color: 'white' }
+          },
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)',
+          scene: {
+            bgcolor: 'rgba(0,0,0,0)',
+            camera: { eye: { x: 1.87, y: 0.88, z: -0.64 } },
+            xaxis: { gridcolor: 'white', color: 'white' },
+            yaxis: { gridcolor: 'white', color: 'white' },
+            zaxis: { gridcolor: 'white', color: 'white' }
+          },
+          autosize: true,
+          margin: { l: 0, r: 0, b: 0, t: 50 }
+        }
+        
+        if (document.getElementById('contourPlot')) {
+          Plotly.newPlot('contourPlot', data2, layout2, { responsive: true })
+        }
+        
+        // Multiple Surface Plots
+        const z1 = createSampleData()
+        const z2 = z1.map(row => row.map(val => val + 2))
+        const z3 = z1.map(row => row.map(val => val - 2))
+        
+        const data3 = [
+          { z: z1, type: 'surface', colorscale: 'Viridis', opacity: 0.8 },
+          { z: z2, type: 'surface', colorscale: 'Plasma', showscale: false, opacity: 0.6 },
+          { z: z3, type: 'surface', colorscale: 'Cividis', showscale: false, opacity: 0.6 }
+        ]
+        
+        const layout3 = {
+          title: {
+            text: 'Multiple 3D Surface Plots',
+            font: { color: 'white' }
+          },
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)',
+          scene: {
+            bgcolor: 'rgba(0,0,0,0)',
+            xaxis: { gridcolor: 'white', color: 'white' },
+            yaxis: { gridcolor: 'white', color: 'white' },
+            zaxis: { gridcolor: 'white', color: 'white' }
+          },
+          autosize: true,
+          margin: { l: 0, r: 0, b: 0, t: 50 }
+        }
+        
+        if (document.getElementById('multiplePlot')) {
+          Plotly.newPlot('multiplePlot', data3, layout3, { responsive: true })
+        }
+        
+      } catch (error) {
+        console.error('Error loading Plotly:', error)
+      }
+    }
+
+    initializePlots()
+  }, [isClient])
+
+  const handleLevelSelect = (level: any) => {
     setSelectedLevel(level)
     setShowContent(true)
     setTimeout(() => {
@@ -34,46 +192,46 @@ const FluidViscosityExplainer = () => {
       {
         title: "🍯 What is Viscosity?",
         content: `Think of viscosity as how "thick" or "sticky" a liquid is:
-        • Water has low viscosity - it flows easily
-        • Honey has high viscosity - it flows slowly and sticks
-        • Motor oil is in between
-        
-        In real life, liquids don't always have the same thickness everywhere - like how honey might be thicker when it's cold at the bottom of the jar.`
+• Water has low viscosity - it flows easily
+• Honey has high viscosity - it flows slowly and sticks
+• Motor oil is in between
+
+In real life, liquids don't always have the same thickness everywhere - like how honey might be thicker when it's cold at the bottom of the jar.`
       },
       {
         title: "🤖 What This Research Does",
         content: `Scientists wanted to create a smart computer program that can:
-        1. Watch how a liquid flows (like water through a pipe)
-        2. Figure out if the liquid is thicker in some places than others
-        3. Do this without having to stick sensors everywhere in the liquid
-        
-        It's like being a detective - you see how the liquid moves and guess its "thickness recipe."`
+1. Watch how a liquid flows (like water through a pipe)
+2. Figure out if the liquid is thicker in some places than others
+3. Do this without having to stick sensors everywhere in the liquid
+
+It's like being a detective - you see how the liquid moves and guess its "thickness recipe."`
       },
       {
         title: "🧠 The Smart Computer (Neural Network)",
         content: `They used artificial intelligence called a "neural network" - think of it as a very smart computer brain that:
-        • Learns patterns by looking at examples
-        • Follows the rules of physics (like how liquids must behave)
-        • Makes educated guesses about what it can't directly see
-        
-        It's like teaching a computer to be a liquid flow expert!`
+• Learns patterns by looking at examples
+• Follows the rules of physics (like how liquids must behave)
+• Makes educated guesses about what it can't directly see
+
+It's like teaching a computer to be a liquid flow expert!`
       },
       {
         title: "🎯 The Results",
         content: `The good news: The computer got really good at predicting how the liquid flows!
-        The challenge: It wasn't great at figuring out the exact "thickness recipe."
-        
-        Why? Imagine trying to guess a cake recipe just by looking at the finished cake - it's really hard! The liquid flow might look similar even with different thickness patterns.`
+The challenge: It wasn't great at figuring out the exact "thickness recipe."
+
+Why? Imagine trying to guess a cake recipe just by looking at the finished cake - it's really hard! The liquid flow might look similar even with different thickness patterns.`
       },
       {
         title: "🔬 Why This Matters",
         content: `This research helps us understand liquids in:
-        • Blood flow in our bodies (thicker in some arteries)
-        • Oil flowing through pipelines
-        • Paint or chocolate flowing in factories
-        • Weather patterns in the atmosphere
-        
-        Better understanding means better designs for everything from medical devices to manufacturing!`
+• Blood flow in our bodies (thicker in some arteries)
+• Oil flowing through pipelines
+• Paint or chocolate flowing in factories
+• Weather patterns in the atmosphere
+
+Better understanding means better designs for everything from medical devices to manufacturing!`
       }
     ]
   }
@@ -84,61 +242,61 @@ const FluidViscosityExplainer = () => {
       {
         title: "📊 The Mathematical Foundation",
         content: `This research tackles fluid dynamics using the Navier-Stokes equations - the fundamental equations that describe how fluids move:
-        
-        • **Momentum equations**: How forces cause fluid motion
-        • **Continuity equation**: Mass conservation (fluid doesn't disappear)
-        • **Viscosity model**: ν(y) = νbase + a·y (linear variation)
-        
-        The key innovation is inferring the parameter 'a' (viscosity gradient) from sparse flow measurements.`
+
+• **Momentum equations**: How forces cause fluid motion
+• **Continuity equation**: Mass conservation (fluid doesn't disappear)
+• **Viscosity model**: ν(y) = νbase + a·y (linear variation)
+
+The key innovation is inferring the parameter 'a' (viscosity gradient) from sparse flow measurements.`
       },
       {
         title: "🧮 Physics-Informed Neural Networks (PINNs)",
         content: `PINNs are special because they combine:
-        
-        **Data-driven learning**: Learn from actual measurements
-        **Physics constraints**: Must obey fundamental laws
-        **Inverse problem solving**: Work backwards from effects to causes
-        
-        The loss function includes three terms:
-        • PDE residuals (physics compliance)
-        • Boundary conditions (realistic constraints)
-        • Data fitting (match observations)
-        
-        This ensures the AI solution is both accurate and physically meaningful.`
+
+**Data-driven learning**: Learn from actual measurements
+**Physics constraints**: Must obey fundamental laws
+**Inverse problem solving**: Work backwards from effects to causes
+
+The loss function includes three terms:
+• PDE residuals (physics compliance)
+• Boundary conditions (realistic constraints)
+• Data fitting (match observations)
+
+This ensures the AI solution is both accurate and physically meaningful.`
       },
       {
         title: "🔧 Advanced Training Techniques",
         content: `The researchers used sophisticated methods to improve training:
-        
-        **Fourier Feature Embeddings**: Help the network learn high-frequency patterns
-        **Adaptive Loss Weighting**: Automatically balance different objectives
-        **Curriculum Learning**: Start simple, gradually increase complexity
-        **Parameter Re-initialization**: Escape local minima in optimization
-        
-        These techniques address common challenges in training neural networks for physics problems.`
+
+**Fourier Feature Embeddings**: Help the network learn high-frequency patterns
+**Adaptive Loss Weighting**: Automatically balance different objectives
+**Curriculum Learning**: Start simple, gradually increase complexity
+**Parameter Re-initialization**: Escape local minima in optimization
+
+These techniques address common challenges in training neural networks for physics problems.`
       },
       {
         title: "📈 Experimental Setup",
         content: `**Test Case**: 2D channel flow (like flow between parallel plates)
-        **Reynolds Number**: 100 (moderate flow speed)
-        **Data**: 100 sparse measurement points
-        **Domain**: 2×1 rectangular channel
-        **True Parameter**: a = 0.05 (small viscosity gradient)
-        
-        The sparse data simulates realistic scenarios where you can't measure everywhere.`
+**Reynolds Number**: 100 (moderate flow speed)
+**Data**: 100 sparse measurement points
+**Domain**: 2×1 rectangular channel
+**True Parameter**: a = 0.05 (small viscosity gradient)
+
+The sparse data simulates realistic scenarios where you can't measure everywhere.`
       },
       {
         title: "⚠️ Key Findings & Challenges",
         content: `**Success**: Excellent flow field reconstruction with low PDE residuals (~10⁻⁵)
-        **Challenge**: Poor parameter estimation (inferred a ≈ 1.195 vs. true a = 0.05)
-        
-        **Why this happens**:
-        • Ill-posed inverse problem (multiple solutions possible)
-        • Weak parameter sensitivity in sparse data
-        • Complex optimization landscape
-        • Parameter-field coupling effects
-        
-        This highlights the difference between fitting data and correctly identifying underlying physics.`
+**Challenge**: Poor parameter estimation (inferred a ≈ 1.195 vs. true a = 0.05)
+
+**Why this happens**:
+• Ill-posed inverse problem (multiple solutions possible)
+• Weak parameter sensitivity in sparse data
+• Complex optimization landscape
+• Parameter-field coupling effects
+
+This highlights the difference between fitting data and correctly identifying underlying physics.`
       }
     ]
   }
@@ -149,101 +307,101 @@ const FluidViscosityExplainer = () => {
       {
         title: "🔬 Mathematical Formulation & Non-dimensionalization",
         content: `**Governing Equations** (steady, incompressible, 2D):
-        
-        Momentum: ρ(u·∇)u = -∇P + ∇·τ
-        Continuity: ∇·u = 0
-        Constitutive: τ = 2μS, where μ = ρν(y)
-        
-        **Non-dimensional form** with characteristic scales (Lc, Uc, νbase,true):
-        Rx = uux + vuy + Px - (1/Rebase)Vx(u,v,ν̃) = 0
-        Ry = ubx + vvy + Py - (1/Rebase)Vy(u,v,ν̃) = 0
-        Rc = ux + vy = 0
-        
-        Where ν̃(y) = 1 + ã·y and ã = a·Lc/νbase,true is the target parameter.`
+
+Momentum: ρ(u·∇)u = -∇P + ∇·τ
+Continuity: ∇·u = 0
+Constitutive: τ = 2μS, where μ = ρν(y)
+
+**Non-dimensional form** with characteristic scales (Lc, Uc, νbase,true):
+Rx = uux + vuy + Px - (1/Rebase)Vx(u,v,ν̃) = 0
+Ry = ubx + vvy + Py - (1/Rebase)Vy(u,v,ν̃) = 0
+Rc = ux + vy = 0
+
+Where ν̃(y) = 1 + ã·y and ã = a·Lc/νbase,true is the target parameter.`
       },
       {
         title: "⚡ Network Architecture & Feature Engineering",
         content: `**MLP Structure**: [2, 64, 128, 128, 64, 3] with tanh activation
-        **Input**: (x,y) → (û,v̂,P̂)
-        **Parameter**: ã as additional trainable scalar
-        
-        **Fourier Feature Embeddings**:
-        γ(x) = [cos(2πBx), sin(2πBx)]ᵀ
-        Maps R² → R²ᵐ to mitigate spectral bias
-        
-        **Automatic Differentiation**: Essential for computing higher-order derivatives:
-        Vx = ν̃(uxx + uyy) + ν̃yuy
-        Vy = ν̃(vxx + vyy) + ν̃yvy
-        where ν̃y = ∂ν̃/∂y = ã`
+**Input**: (x,y) → (û,v̂,P̂)
+**Parameter**: ã as additional trainable scalar
+
+**Fourier Feature Embeddings**:
+γ(x) = [cos(2πBx), sin(2πBx)]ᵀ
+Maps R² → R²ᵐ to mitigate spectral bias
+
+**Automatic Differentiation**: Essential for computing higher-order derivatives:
+Vx = ν̃(uxx + uyy) + ν̃yuy
+Vy = ν̃(vxx + vyy) + ν̃yvy
+where ν̃y = ∂ν̃/∂y = ã`
       },
       {
         title: "🎯 Loss Function Architecture & Optimization",
         content: `**Multi-objective Loss**:
-        Ltotal = λPDE·LPDE + λBC·LBC + λdata·Ldata
-        
-        **Adaptive Weighting Schemes**:
-        • Gradient-based (Wang et al.): λᵢ ∝ |∇θLᵢ|
-        • Uncertainty-based (Kendall et al.): Balance homoscedastic/heteroscedastic
-        
-        **Advanced Sampling**:
-        • Latin Hypercube/Sobol for collocation points
-        • Adaptive refinement in high-residual regions
-        
-        **Optimization Strategy**:
-        Adam with exponential LR decay + curriculum learning + periodic re-initialization`
+Ltotal = λPDE·LPDE + λBC·LBC + λdata·Ldata
+
+**Adaptive Weighting Schemes**:
+• Gradient-based (Wang et al.): λᵢ ∝ |∇θLᵢ|
+• Uncertainty-based (Kendall et al.): Balance homoscedastic/heteroscedastic
+
+**Advanced Sampling**:
+• Latin Hypercube/Sobol for collocation points
+• Adaptive refinement in high-residual regions
+
+**Optimization Strategy**:
+Adam with exponential LR decay + curriculum learning + periodic re-initialization`
       },
       {
         title: "📊 Identifiability Analysis & Sensitivity",
         content: `**Parameter Sensitivity Matrix**:
-        S = ∂u/∂ã evaluated at measurement locations
-        
-        **Fisher Information Matrix**:
-        F = SᵀΣ⁻¹S (where Σ is measurement covariance)
-        
-        **Practical Identifiability**:
-        cond(F) and eigenvalue spectrum indicate parameter estimability
-        
-        **Key Issue**: ã appears only through ν̃y = ã in viscous terms
-        Linear coupling → weak sensitivity, especially with sparse data
-        Multiple (û,v̂,P̂,ã) combinations can satisfy PDEs with similar accuracy`
+S = ∂u/∂ã evaluated at measurement locations
+
+**Fisher Information Matrix**:
+F = SᵀΣ⁻¹S (where Σ is measurement covariance)
+
+**Practical Identifiability**:
+cond(F) and eigenvalue spectrum indicate parameter estimability
+
+**Key Issue**: ã appears only through ν̃y = ã in viscous terms
+Linear coupling → weak sensitivity, especially with sparse data
+Multiple (û,v̂,P̂,ã) combinations can satisfy PDEs with similar accuracy`
       },
       {
         title: "🔍 Results Analysis & Inverse Problem Pathology",
         content: `**Quantitative Performance**:
-        - PDE residuals: O(10⁻⁴) - O(10⁻⁵) ✓
-        - Flow field MSE: Low, physically consistent ✓  
-        - Parameter error: |ãinf - ãtrue|/|ãtrue| = 2290% ✗
-        
-        **Root Causes**:
-        1. **Non-uniqueness**: Multiple ã values yield similar flow patterns
-        2. **Regularization deficiency**: No prior constraints on ã
-        3. **Information content**: Nd=100 insufficient for unique identification
-        4. **Compensation mechanisms**: Network adjusts flow fields to maintain PDE compliance
-        
-        **Theoretical Implications**:
-        This exemplifies classical inverse problem pathology where data fitting ≠ parameter recovery`
+- PDE residuals: O(10⁻⁴) - O(10⁻⁵) ✓
+- Flow field MSE: Low, physically consistent ✓  
+- Parameter error: |ãinf - ãtrue|/|ãtrue| = 2290% ✗
+
+**Root Causes**:
+1. **Non-uniqueness**: Multiple ã values yield similar flow patterns
+2. **Regularization deficiency**: No prior constraints on ã
+3. **Information content**: Nd=100 insufficient for unique identification
+4. **Compensation mechanisms**: Network adjusts flow fields to maintain PDE compliance
+
+**Theoretical Implications**:
+This exemplifies classical inverse problem pathology where data fitting ≠ parameter recovery`
       },
       {
         title: "🚀 Future Directions & Methodological Improvements",
         content: `**Enhanced Identifiability**:
-        • Optimal sensor placement (D-optimal design)
-        • Multi-physics constraints (temperature coupling)
-        • Temporal data incorporation
-        
-        **Bayesian Framework**:
-        • Uncertainty quantification via variational inference
-        • Prior regularization on parameter space
-        • Ensemble methods for robustness
-        
-        **Advanced Architectures**:
-        • Multi-fidelity networks
-        • Domain decomposition PINNs  
-        • Operator learning approaches
-        
-        **Regularization Strategies**:
-        • Sobolev space constraints
-        • Maximum entropy regularization
-        • Physics-informed priors`
+• Optimal sensor placement (D-optimal design)
+• Multi-physics constraints (temperature coupling)
+• Temporal data incorporation
+
+**Bayesian Framework**:
+• Uncertainty quantification via variational inference
+• Prior regularization on parameter space
+• Ensemble methods for robustness
+
+**Advanced Architectures**:
+• Multi-fidelity networks
+• Domain decomposition PINNs  
+• Operator learning approaches
+
+**Regularization Strategies**:
+• Sobolev space constraints
+• Maximum entropy regularization
+• Physics-informed priors`
       }
     ]
   }
@@ -259,12 +417,18 @@ const FluidViscosityExplainer = () => {
 
   const currentContent = getContent()
 
+  if (!isClient) {
+    return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="text-white text-xl">Loading...</div>
+    </div>
+  }
+
   return (
-    <main className="min-h-screen" style={{
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900" style={{
       scrollSnapType: 'y mandatory'
     }}>
       {/* Hero Section */}
-      <section className={`relative transition-all duration-1000 ${isScrolled ? 'h-32' : 'h-screen'}`} style={{
+      <section className={`relative transition-all duration-1000 ${isScrolled ? 'h-16' : 'h-screen'}`} style={{
         scrollSnapAlign: 'start'
       }}>
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm"></div>
@@ -334,7 +498,7 @@ const FluidViscosityExplainer = () => {
         {/* Explanation Content */}
         {showContent && currentContent && (
           <>
-            <section id="explanation-content" className=" px-4 min-h-screen" style={{
+            <section id="explanation-content" className="py-16 px-4 min-h-screen" style={{
               scrollSnapAlign: 'start'
             }}>
               <div className="max-w-6xl mx-auto">
@@ -393,6 +557,35 @@ const FluidViscosityExplainer = () => {
           </>
         )}
       </div>
+
+      {/* 3D Surface Plots Section */}
+      <section className="py-16 px-4 min-h-screen" style={{
+        scrollSnapAlign: 'start'
+      }}>
+        <div className="max-w-6xl mx-auto">
+          <h2 className="text-4xl font-bold text-white mb-10 text-center">3D Surface Plots</h2>
+          
+          <div className="space-y-16">
+            {/* Topographical Plot */}
+            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
+              <h3 className="text-2xl font-bold text-blue-300 mb-6">Interactive 3D Surface Plot</h3>
+              <div id="topographicalPlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+            </div>
+            
+            {/* Contour Plot */}
+            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
+              <h3 className="text-2xl font-bold text-blue-300 mb-6">Surface Plot With Contours</h3>
+              <div id="contourPlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+            </div>
+            
+            {/* Multiple Surface Plots */}
+            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
+              <h3 className="text-2xl font-bold text-blue-300 mb-6">Multiple 3D Surface Plots</h3>
+              <div id="multiplePlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   )
 }
