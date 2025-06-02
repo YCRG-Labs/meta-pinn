@@ -1,0 +1,51 @@
+{
+  "test_info": {
+    "model_path": "/home/brand/pinn_viscosity/backend/results/trained_model.pth",
+    "test_time": "2025-06-02 08:49:20",
+    "test_name": "Command_Line_Test",
+    "output_directory": "backend/results/interactive/interactive_test"
+  },
+  "configuration": {
+    "reynolds_number": 100,
+    "nu_base_true": 0.01,
+    "a_true": 0.05,
+    "u_max_inlet": 1.0,
+    "domain_x_max": 2.0,
+    "domain_y_max": 1.0,
+    "domain_x_min": 0.0,
+    "domain_y_min": 0.0,
+    "use_fourier_features": true,
+    "use_adaptive_weights": true,
+    "use_adaptive_sampling": false,
+    "use_curriculum_learning": false,
+    "collocation_points": 5000,
+    "boundary_points": 50,
+    "sparse_data_points": 100
+  },
+  "results": {
+    "inferred_viscosity_param": 0.05023981258273125,
+    "true_viscosity_param": 0.05,
+    "absolute_error": 0.00023981258273124417,
+    "relative_error_percent": 0.47962516546248835,
+    "pde_residuals": {
+      "momentum_x": 0.1577693670988083,
+      "momentum_y": 0.28484565019607544,
+      "continuity": 0.19950462877750397
+    }
+  },
+  "model_info": {
+    "architecture": [
+      2,
+      128,
+      256,
+      512,
+      512,
+      256,
+      128,
+      64,
+      3
+    ],
+    "device": "cuda",
+    "total_parameters": 616585
+  }
+}

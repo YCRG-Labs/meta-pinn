@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Interactive PINN Model Testing Script
+Interactive PINN Model Testing Script - CSV Export Version
 
 This script allows you to load a trained PINN model and test it with different
-domain and physics parameters to evaluate model generalization and performance.
+domain and physics parameters, saving results as CSV files instead of graphs.
 
 Model path is hardcoded to: results/trained_model.pth
 
@@ -19,7 +19,7 @@ import sys
 import torch
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 import json
 import time
 from typing import Dict, List, Tuple, Optional, Union
@@ -28,9 +28,8 @@ from typing import Dict, List, Tuple, Optional, Union
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from config import cfg, Config
 from src.model.model import PINN
-from src.model.evaluate_model import evaluate_model, analyze_flow_features
+from src.model.evaluate_model import evaluate_model
 from src.generate_data import generate_collocation_points, generate_boundary_points, generate_sparse_data_points
-from main import create_3d_visualizations, export_simulation_data
 
 def create_test_config(reynolds_number=None, nu_base_true=None, a_true=None, 
                       u_max_inlet=None, x_max=None, y_max=None, x_min=None, y_min=None,
@@ -239,22 +238,384 @@ def load_model_with_config(model_path, test_config):
     
     return model, test_config
 
-def run_model_test(model, test_config, model_path, output_suffix="test", 
-                  create_visualizations=True, export_data=True, analyze_flow=True):
+def export_flow_field_csv(model, test_config, save_path):
     """
-    Run comprehensive model testing with the given configuration
+    Export flow field data to CSV files
+    
+    Args:
+        model: Trained PINN model
+        test_config: Test configuration object
+        save_path: Directory to save CSV files
+        
+    Returns:
+        Dictionary containing exported data information
+    """
+    print("\n" + "="*70)
+    print("Exporting Flow Field Data to CSV")
+    print("="*70)
+    
+    # Create high-resolution grid for visualization
+    nx, ny = 100, 50
+    x = torch.linspace(test_config.X_MIN, test_config.X_MAX, nx, device=test_config.DEVICE)
+    y = torch.linspace(test_config.Y_MIN, test_config.Y_MAX, ny, device=test_config.DEVICE)
+    X, Y = torch.meshgrid(x, y, indexing='ij')
+    x_flat = X.reshape(-1, 1)
+    y_flat = Y.reshape(-1, 1)
+    
+    os.makedirs(save_path, exist_ok=True)
+    
+    # For unsteady flow, create multiple time slices
+    if test_config.UNSTEADY_FLOW:
+        n_time_slices = 5
+        time_values = torch.linspace(test_config.T_MIN, test_config.T_MAX, n_time_slices, device=test_config.DEVICE)
+        
+        for i, t_val in enumerate(time_values):
+            t_flat = torch.full_like(x_flat, t_val)
+            
+            # Get predictions
+            u_pred, v_pred, p_pred = model.uvp(x_flat, y_flat, t_flat)
+            
+            # Convert to numpy
+            x_np = x_flat.detach().cpu().numpy().flatten()
+            y_np = y_flat.detach().cpu().numpy().flatten()
+            t_np = t_flat.detach().cpu().numpy().flatten()
+            u_np = u_pred.detach().cpu().numpy().flatten()
+            v_np = v_pred.detach().cpu().numpy().flatten()
+            p_np = p_pred.detach().cpu().numpy().flatten()
+            
+            # Calculate derived quantities
+            vel_mag = np.sqrt(u_np**2 + v_np**2)
+            nu_np = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_np
+            
+            # Create DataFrame
+            df = pd.DataFrame({
+                'x': x_np,
+                'y': y_np,
+                't': t_np,
+                'u_velocity': u_np,
+                'v_velocity': v_np,
+                'pressure': p_np,
+                'velocity_magnitude': vel_mag,
+                'viscosity': nu_np
+            })
+            
+            # Save to CSV
+            filename = f'flow_field_t_{t_val:.3f}.csv'
+            filepath = os.path.join(save_path, filename)
+            df.to_csv(filepath, index=False)
+            print(f"Saved time slice t={t_val:.3f} to {filename}")
+            
+    else:
+        # Steady flow
+        u_pred, v_pred, p_pred = model.uvp(x_flat, y_flat)
+        
+        # Convert to numpy
+        x_np = x_flat.detach().cpu().numpy().flatten()
+        y_np = y_flat.detach().cpu().numpy().flatten()
+        u_np = u_pred.detach().cpu().numpy().flatten()
+        v_np = v_pred.detach().cpu().numpy().flatten()
+        p_np = p_pred.detach().cpu().numpy().flatten()
+        
+        # Calculate derived quantities
+        vel_mag = np.sqrt(u_np**2 + v_np**2)
+        nu_np = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_np
+        
+        # Calculate vorticity on the grid
+        X_grid = X.detach().cpu().numpy()
+        Y_grid = Y.detach().cpu().numpy()
+        u_grid = u_pred.reshape(nx, ny).detach().cpu().numpy()
+        v_grid = v_pred.reshape(nx, ny).detach().cpu().numpy()
+        
+        # Calculate gradients for vorticity
+        dx = (test_config.X_MAX - test_config.X_MIN) / (nx - 1)
+        dy = (test_config.Y_MAX - test_config.Y_MIN) / (ny - 1)
+        u_y = np.gradient(u_grid, dy, axis=1)
+        v_x = np.gradient(v_grid, dx, axis=0)
+        vorticity_grid = v_x - u_y
+        vorticity_flat = vorticity_grid.flatten()
+        
+        # Calculate divergence (mass conservation check)
+        u_x = np.gradient(u_grid, dx, axis=0)
+        v_y = np.gradient(v_grid, dy, axis=1)
+        divergence_grid = u_x + v_y
+        divergence_flat = divergence_grid.flatten()
+        
+        # Create DataFrame
+        df = pd.DataFrame({
+            'x': x_np,
+            'y': y_np,
+            'u_velocity': u_np,
+            'v_velocity': v_np,
+            'pressure': p_np,
+            'velocity_magnitude': vel_mag,
+            'viscosity': nu_np,
+            'vorticity': vorticity_flat,
+            'divergence': divergence_flat
+        })
+        
+        # Save main flow field
+        filepath = os.path.join(save_path, 'flow_field.csv')
+        df.to_csv(filepath, index=False)
+        print(f"Saved steady flow field to flow_field.csv")
+        
+        # Save additional derived fields
+        derived_df = pd.DataFrame({
+            'x': x_np,
+            'y': y_np,
+            'vorticity': vorticity_flat,
+            'divergence': divergence_flat,
+            'shear_rate': np.sqrt(u_y.flatten()**2 + v_x.flatten()**2),
+            'reynolds_local': vel_mag / nu_np
+        })
+        
+        derived_filepath = os.path.join(save_path, 'derived_fields.csv')
+        derived_df.to_csv(derived_filepath, index=False)
+        print(f"Saved derived fields to derived_fields.csv")
+    
+    print(f"Flow field CSV export completed")
+    
+    return {
+        'grid_size': [nx, ny],
+        'steady_flow': not test_config.UNSTEADY_FLOW,
+        'files_created': ['flow_field.csv', 'derived_fields.csv'] if not test_config.UNSTEADY_FLOW else [f'flow_field_t_{t:.3f}.csv' for t in time_values.cpu().numpy()]
+    }
+
+def export_boundary_data_csv(model, test_config, save_path):
+    """
+    Export boundary condition data to CSV files
+    
+    Args:
+        model: Trained PINN model
+        test_config: Test configuration object
+        save_path: Directory to save CSV files
+    """
+    print("\nExporting boundary data to CSV...")
+    
+    # Generate boundary points
+    boundary_points = generate_boundary_points(test_config)
+    
+    # Process each boundary
+    for boundary_name, points in boundary_points.items():
+        points_np = points.detach().cpu().numpy()
+        
+        if test_config.UNSTEADY_FLOW and points.shape[1] > 2:
+            x_vals = points[:, 0:1]
+            y_vals = points[:, 1:2]
+            t_vals = points[:, 2:3]
+            u_pred, v_pred, p_pred = model.uvp(x_vals, y_vals, t_vals)
+            
+            df = pd.DataFrame({
+                'x': points_np[:, 0],
+                'y': points_np[:, 1],
+                't': points_np[:, 2],
+                'u_velocity': u_pred.detach().cpu().numpy().flatten(),
+                'v_velocity': v_pred.detach().cpu().numpy().flatten(),
+                'pressure': p_pred.detach().cpu().numpy().flatten()
+            })
+        else:
+            x_vals = points[:, 0:1]
+            y_vals = points[:, 1:2]
+            u_pred, v_pred, p_pred = model.uvp(x_vals, y_vals)
+            
+            df = pd.DataFrame({
+                'x': points_np[:, 0],
+                'y': points_np[:, 1],
+                'u_velocity': u_pred.detach().cpu().numpy().flatten(),
+                'v_velocity': v_pred.detach().cpu().numpy().flatten(),
+                'pressure': p_pred.detach().cpu().numpy().flatten()
+            })
+        
+        # Save boundary data
+        filepath = os.path.join(save_path, f'boundary_{boundary_name}.csv')
+        df.to_csv(filepath, index=False)
+        print(f"Saved {boundary_name} boundary data to boundary_{boundary_name}.csv")
+
+def export_centerline_data_csv(model, test_config, save_path):
+    """
+    Export centerline velocity profile to CSV
+    
+    Args:
+        model: Trained PINN model
+        test_config: Test configuration object
+        save_path: Directory to save CSV files
+    """
+    print("\nExporting centerline data to CSV...")
+    
+    # Create centerline points
+    n_points = 100
+    x_centerline = torch.linspace(test_config.X_MIN, test_config.X_MAX, n_points, device=test_config.DEVICE).unsqueeze(1)
+    y_centerline = torch.full_like(x_centerline, (test_config.Y_MIN + test_config.Y_MAX) / 2)
+    
+    # Get predictions along centerline
+    u_pred, v_pred, p_pred = model.uvp(x_centerline, y_centerline)
+    
+    # Calculate viscosity along centerline
+    nu_centerline = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_centerline
+    
+    # Create DataFrame
+    df = pd.DataFrame({
+        'x': x_centerline.detach().cpu().numpy().flatten(),
+        'y': y_centerline.detach().cpu().numpy().flatten(),
+        'u_velocity': u_pred.detach().cpu().numpy().flatten(),
+        'v_velocity': v_pred.detach().cpu().numpy().flatten(),
+        'pressure': p_pred.detach().cpu().numpy().flatten(),
+        'viscosity': nu_centerline.detach().cpu().numpy().flatten()
+    })
+    
+    filepath = os.path.join(save_path, 'centerline_profile.csv')
+    df.to_csv(filepath, index=False)
+    print(f"Saved centerline profile to centerline_profile.csv")
+
+def export_viscosity_profile_csv(model, test_config, save_path):
+    """
+    Export viscosity profile comparison to CSV
+    
+    Args:
+        model: Trained PINN model
+        test_config: Test configuration object
+        save_path: Directory to save CSV files
+    """
+    print("\nExporting viscosity profile to CSV...")
+    
+    # Create y-coordinate range
+    n_points = 100
+    y_values = np.linspace(test_config.Y_MIN, test_config.Y_MAX, n_points)
+    
+    # Calculate true and inferred viscosity profiles
+    nu_true = test_config.NU_BASE_TRUE + test_config.A_TRUE * y_values
+    nu_inferred = test_config.NU_BASE_TRUE + model.get_inferred_viscosity_param() * y_values
+    
+    # Calculate error
+    absolute_error = np.abs(nu_inferred - nu_true)
+    relative_error = absolute_error / nu_true * 100
+    
+    # Create DataFrame
+    df = pd.DataFrame({
+        'y': y_values,
+        'viscosity_true': nu_true,
+        'viscosity_inferred': nu_inferred,
+        'absolute_error': absolute_error,
+        'relative_error_percent': relative_error
+    })
+    
+    filepath = os.path.join(save_path, 'viscosity_profile.csv')
+    df.to_csv(filepath, index=False)
+    print(f"Saved viscosity profile comparison to viscosity_profile.csv")
+
+def export_model_metrics_csv(model, test_config, metrics, save_path):
+    """
+    Export model evaluation metrics to CSV
+    
+    Args:
+        model: Trained PINN model
+        test_config: Test configuration object
+        metrics: Evaluation metrics dictionary
+        save_path: Directory to save CSV files
+    """
+    print("\nExporting model metrics to CSV...")
+    
+    # Create metrics summary
+    metrics_data = {
+        'metric': [
+            'reynolds_number',
+            'viscosity_base_true',
+            'viscosity_param_true',
+            'viscosity_param_inferred',
+            'absolute_error',
+            'relative_error_percent',
+            'pde_residual_momentum_x',
+            'pde_residual_momentum_y',
+            'pde_residual_continuity',
+            'model_total_parameters',
+            'domain_x_min',
+            'domain_x_max',
+            'domain_y_min',
+            'domain_y_max',
+            'inlet_velocity_max',
+            'use_fourier_features',
+            'use_adaptive_weights'
+        ],
+        'value': [
+            test_config.REYNOLDS_NUMBER,
+            test_config.NU_BASE_TRUE,
+            test_config.A_TRUE,
+            model.get_inferred_viscosity_param(),
+            metrics['abs_error'],
+            metrics['rel_error'],
+            metrics['pde_residuals']['momentum_x'],
+            metrics['pde_residuals']['momentum_y'],
+            metrics['pde_residuals']['continuity'],
+            sum(p.numel() for p in model.parameters()),
+            test_config.X_MIN,
+            test_config.X_MAX,
+            test_config.Y_MIN,
+            test_config.Y_MAX,
+            test_config.U_MAX_INLET,
+            test_config.USE_FOURIER_FEATURES,
+            test_config.USE_ADAPTIVE_WEIGHTS
+        ]
+    }
+    
+    df = pd.DataFrame(metrics_data)
+    filepath = os.path.join(save_path, 'model_metrics.csv')
+    df.to_csv(filepath, index=False)
+    print(f"Saved model metrics to model_metrics.csv")
+
+def export_pde_residuals_csv(model, test_config, save_path):
+    """
+    Export PDE residuals at sample points to CSV
+    
+    Args:
+        model: Trained PINN model
+        test_config: Test configuration object
+        save_path: Directory to save CSV files
+    """
+    print("\nExporting PDE residuals to CSV...")
+    
+    # Create sample points for residual evaluation
+    n_sample = 1000
+    x_sample = torch.rand(n_sample, 1, device=test_config.DEVICE) * (test_config.X_MAX - test_config.X_MIN) + test_config.X_MIN
+    y_sample = torch.rand(n_sample, 1, device=test_config.DEVICE) * (test_config.Y_MAX - test_config.Y_MIN) + test_config.Y_MIN
+    
+    x_sample.requires_grad_(True)
+    y_sample.requires_grad_(True)
+    
+    # Calculate residuals
+    residuals = model.pde_residual(x_sample, y_sample)
+    
+    # Create DataFrame
+    df = pd.DataFrame({
+        'x': x_sample.detach().cpu().numpy().flatten(),
+        'y': y_sample.detach().cpu().numpy().flatten(),
+        'momentum_x_residual': residuals['momentum_x'].detach().cpu().numpy().flatten(),
+        'momentum_y_residual': residuals['momentum_y'].detach().cpu().numpy().flatten(),
+        'continuity_residual': residuals['continuity'].detach().cpu().numpy().flatten(),
+        'total_residual_magnitude': (residuals['momentum_x']**2 + residuals['momentum_y']**2 + residuals['continuity']**2).sqrt().detach().cpu().numpy().flatten()
+    })
+    
+    filepath = os.path.join(save_path, 'pde_residuals.csv')
+    df.to_csv(filepath, index=False)
+    print(f"Saved PDE residuals to pde_residuals.csv")
+
+def run_model_test(model, test_config, model_path, output_suffix="test", 
+                  export_flow_field=True, export_boundary=True, export_centerline=True,
+                  export_viscosity=True, export_residuals=True):
+    """
+    Run comprehensive model testing with CSV export
     
     Args:
         model: Loaded PINN model
         test_config: Test configuration object
         model_path: Path to the model file (for reporting)
         output_suffix: Suffix for output directory
-        create_visualizations: Whether to create 3D visualizations
-        export_data: Whether to export simulation data
-        analyze_flow: Whether to analyze flow features
+        export_flow_field: Whether to export flow field data
+        export_boundary: Whether to export boundary data
+        export_centerline: Whether to export centerline data
+        export_viscosity: Whether to export viscosity profile
+        export_residuals: Whether to export PDE residuals
         
     Returns:
-        Tuple of (metrics, visualization_data, simulation_data)
+        Tuple of (metrics, exported_files)
     """
     
     print("\n" + "="*70)
@@ -294,8 +655,7 @@ def run_model_test(model, test_config, model_path, output_suffix="test",
     
     # Initialize return variables
     metrics = None
-    visualization_data = None
-    simulation_data = None
+    exported_files = []
     
     try:
         # Generate test data with the new configuration
@@ -316,35 +676,45 @@ def run_model_test(model, test_config, model_path, output_suffix="test",
         
         print(f"Model evaluation completed in {time.time() - eval_start:.2f}s")
         
-        # Create 3D visualizations (optional)
-        if create_visualizations:
-            print("\nCreating 3D visualizations...")
-            viz_start = time.time()
-            
-            visualization_data = create_3d_visualizations(model, test_config, test_output_dir)
-            
-            print(f"3D visualizations completed in {time.time() - viz_start:.2f}s")
+        # Export CSV data
+        print("\nExporting data to CSV files...")
+        export_start = time.time()
         
-        # Export simulation data (optional)
-        if export_data:
-            print("\nExporting simulation data...")
-            export_start = time.time()
-            
-            simulation_data = export_simulation_data(model, test_config, test_output_dir)
-            
-            print(f"Data export completed in {time.time() - export_start:.2f}s")
+        # Export flow field data
+        if export_flow_field:
+            flow_data = export_flow_field_csv(model, test_config, test_output_dir)
+            exported_files.extend(flow_data['files_created'])
         
-        # Analyze advanced flow features (optional)
-        if analyze_flow:
-            print("\nAnalyzing flow features...")
-            flow_start = time.time()
-            
-            analyze_flow_features(model, test_config)
-            
-            print(f"Flow analysis completed in {time.time() - flow_start:.2f}s")
+        # Export boundary data
+        if export_boundary:
+            export_boundary_data_csv(model, test_config, test_output_dir)
+            exported_files.extend([f'boundary_{name}.csv' for name in ['inlet', 'outlet', 'walls']])
+        
+        # Export centerline data
+        if export_centerline:
+            export_centerline_data_csv(model, test_config, test_output_dir)
+            exported_files.append('centerline_profile.csv')
+        
+        # Export viscosity profile
+        if export_viscosity:
+            export_viscosity_profile_csv(model, test_config, test_output_dir)
+            exported_files.append('viscosity_profile.csv')
+        
+        # Export model metrics
+        export_model_metrics_csv(model, test_config, metrics, test_output_dir)
+        exported_files.append('model_metrics.csv')
+        
+        # Export PDE residuals
+        if export_residuals:
+            export_pde_residuals_csv(model, test_config, test_output_dir)
+            exported_files.append('pde_residuals.csv')
+        
+        print(f"CSV export completed in {time.time() - export_start:.2f}s")
         
         # Generate test report
         generate_test_report(model, test_config, metrics, model_path, test_output_dir)
+        exported_files.append('test_report.json')
+        exported_files.append('test_report.txt')
         
         print("\n" + "="*70)
         print("Model Testing Complete!")
@@ -353,13 +723,18 @@ def run_model_test(model, test_config, model_path, output_suffix="test",
         # Print key results
         print_test_results(model, test_config, metrics)
         
-        return metrics, visualization_data, simulation_data
+        # Print exported files
+        print(f"\nExported CSV files:")
+        for filename in exported_files:
+            print(f"  - {filename}")
+        
+        return metrics, exported_files
         
     except Exception as e:
         print(f"\nError during model testing: {str(e)}")
         import traceback
         traceback.print_exc()
-        return metrics, visualization_data, simulation_data
+        return metrics, exported_files
 
 def print_test_results(model, test_config, metrics):
     """Print key test results"""
@@ -509,15 +884,14 @@ def run_multiple_tests(model_path, test_configurations, output_base="multi_test"
         if 'name' in config_params:
             output_suffix += f"_{config_params['name'].replace(' ', '_')}"
         
-        metrics, viz_data, sim_data = run_model_test(
-            model, test_config, model_path, output_suffix
-        )
+        metrics, exported_files = run_model_test(model, test_config, model_path, output_suffix)
         
         # Store results
         result = {
             'test_index': i+1,
             'config_params': config_params,
             'metrics': metrics,
+            'exported_files': exported_files,
             'output_suffix': output_suffix
         }
         all_results.append(result)
@@ -528,21 +902,16 @@ def run_multiple_tests(model_path, test_configurations, output_base="multi_test"
     return all_results
 
 def generate_multi_test_summary(all_results, model_path, output_base):
-    """Generate summary report for multiple tests"""
+    """Generate summary report for multiple tests as CSV"""
     summary_dir = os.path.join(cfg.OUTPUT_DIR, f"summary_{output_base}")
     os.makedirs(summary_dir, exist_ok=True)
-    
-    # Create summary data
-    summary_data = {
-        'model_path': model_path,
-        'test_time': time.strftime('%Y-%m-%d %H:%M:%S'),
-        'total_tests': len(all_results),
-        'test_results': []
-    }
     
     print(f"\n" + "="*70)
     print("Multi-Test Summary")
     print("="*70)
+    
+    # Prepare data for CSV
+    summary_data = []
     
     for result in all_results:
         if result['metrics'] is not None:
@@ -553,20 +922,37 @@ def generate_multi_test_summary(all_results, model_path, output_base):
                 'a_true': result['config_params'].get('a_true', cfg.A_TRUE),
                 'relative_error_percent': result['metrics']['rel_error'],
                 'absolute_error': result['metrics']['abs_error'],
-                'inferred_a': result['metrics']['inferred_a']
+                'inferred_a': result['metrics']['inferred_a'],
+                'momentum_x_residual': result['metrics']['pde_residuals']['momentum_x'],
+                'momentum_y_residual': result['metrics']['pde_residuals']['momentum_y'],
+                'continuity_residual': result['metrics']['pde_residuals']['continuity'],
+                'output_directory': result['output_suffix']
             }
-            summary_data['test_results'].append(test_summary)
+            summary_data.append(test_summary)
             
             print(f"Test {result['test_index']}: {test_summary['test_name']}")
             print(f"  Re={test_summary['reynolds_number']}, a_true={test_summary['a_true']:.4f}")
             print(f"  Error: {test_summary['relative_error_percent']:.2f}%")
     
-    # Save summary
-    summary_path = os.path.join(summary_dir, 'multi_test_summary.json')
-    with open(summary_path, 'w') as f:
-        json.dump(summary_data, f, indent=2)
-    
-    print(f"\nSummary saved to: {summary_path}")
+    # Save summary as CSV
+    if summary_data:
+        df = pd.DataFrame(summary_data)
+        summary_path = os.path.join(summary_dir, 'multi_test_summary.csv')
+        df.to_csv(summary_path, index=False)
+        print(f"\nSummary CSV saved to: {summary_path}")
+        
+        # Also save as JSON for backward compatibility
+        json_data = {
+            'model_path': model_path,
+            'test_time': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'total_tests': len(all_results),
+            'test_results': summary_data
+        }
+        
+        json_path = os.path.join(summary_dir, 'multi_test_summary.json')
+        with open(json_path, 'w') as f:
+            json.dump(json_data, f, indent=2)
+        print(f"Summary JSON saved to: {json_path}")
 
 def generate_test_report(model, test_config, metrics, model_path, output_dir):
     """Generate a comprehensive test report"""
@@ -648,7 +1034,7 @@ def main():
     # Hardcoded model path
     DEFAULT_MODEL_PATH = "/home/brand/pinn_viscosity/backend/results/trained_model.pth"
     
-    parser = argparse.ArgumentParser(description="Interactive PINN Model Testing")
+    parser = argparse.ArgumentParser(description="Interactive PINN Model Testing - CSV Export Version")
     parser.add_argument("--model", default=DEFAULT_MODEL_PATH, help=f"Path to the trained model file (default: {DEFAULT_MODEL_PATH})")
     parser.add_argument("--interactive", action="store_true", help="Use interactive mode for configuration")
     parser.add_argument("--inspect", action="store_true", help="Just inspect the saved model configuration and exit")
@@ -675,9 +1061,11 @@ def main():
     
     # Output options
     parser.add_argument("--output-suffix", default="test", help="Output directory suffix")
-    parser.add_argument("--no-viz", action="store_true", help="Skip 3D visualizations")
-    parser.add_argument("--no-export", action="store_true", help="Skip data export")
-    parser.add_argument("--no-flow-analysis", action="store_true", help="Skip flow analysis")
+    parser.add_argument("--no-flow-field", action="store_true", help="Skip flow field export")
+    parser.add_argument("--no-boundary", action="store_true", help="Skip boundary data export")
+    parser.add_argument("--no-centerline", action="store_true", help="Skip centerline export")
+    parser.add_argument("--no-viscosity", action="store_true", help="Skip viscosity profile export")
+    parser.add_argument("--no-residuals", action="store_true", help="Skip PDE residuals export")
     
     # Test scenarios
     parser.add_argument("--run-scenarios", action="store_true", help="Run predefined test scenarios")
@@ -734,9 +1122,11 @@ def main():
         
         run_model_test(
             model, test_config, args.model, args.output_suffix,
-            create_visualizations=not args.no_viz,
-            export_data=not args.no_export,
-            analyze_flow=not args.no_flow_analysis
+            export_flow_field=not args.no_flow_field,
+            export_boundary=not args.no_boundary,
+            export_centerline=not args.no_centerline,
+            export_viscosity=not args.no_viscosity,
+            export_residuals=not args.no_residuals
         )
     
     elif args.run_scenarios:
@@ -822,9 +1212,11 @@ def main():
         
         run_model_test(
             model, test_config, args.model, args.output_suffix,
-            create_visualizations=not args.no_viz,
-            export_data=not args.no_export,
-            analyze_flow=not args.no_flow_analysis
+            export_flow_field=not args.no_flow_field,
+            export_boundary=not args.no_boundary,
+            export_centerline=not args.no_centerline,
+            export_viscosity=not args.no_viscosity,
+            export_residuals=not args.no_residuals
         )
 
 if __name__ == "__main__":
