@@ -7,7 +7,24 @@ const FluidViscosityExplainer = () => {
   const [selectedLevel, setSelectedLevel] = useState('')
   const [showContent, setShowContent] = useState(false)
   const [isClient, setIsClient] = useState(false)
+  const [apiData, setApiData] = useState(null)
+  const [loadingData, setLoadingData] = useState(false)
+  const [apiError, setApiError] = useState(null)
 
+  // State for parameter inputs
+  const [reynoldsNumber, setReynoldsNumber] = useState(100)
+  const [nuBaseTrue, setNuBaseTrue] = useState(0.01)
+  const [aTrue, setATrue] = useState(0.05)
+  const [uMaxInlet, setUMaxInlet] = useState(1.0);
+    const [xMax, setXMax] = useState(2.0);
+    const [yMax, setYMax] = useState(1.0);
+    const [xMin, setXMin] = useState(0.0);
+    const [yMin, setYMin] = useState(0.0);
+    const [nGridX, setNGridX] = useState(50);
+    const [nGridY, setNGridY] = useState(25);
+    const [nTimeSlices, setNTimeSlices] = useState(5);
+    const [name, setName] = useState("Frontend Visualization");
+  
   // Fix hydration by ensuring client-side rendering
   useEffect(() => {
     setIsClient(true)
@@ -15,7 +32,7 @@ const FluidViscosityExplainer = () => {
 
   useEffect(() => {
     if (!isClient) return
-    
+
     const handleScroll = () => {
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop
       setIsScrolled(scrollTop > 50)
@@ -24,12 +41,63 @@ const FluidViscosityExplainer = () => {
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
   }, [isClient])
-  
-  // Load Plotly and create plots only on client side
+
+  // Fetch data from PINN API
+    const fetchPINNData = async () => {
+        setLoadingData(true);
+        setApiError(null);
+
+        try {
+            const response = await fetch('http://localhost:8000/inference/single', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    parameters: {
+                        reynolds_number: reynoldsNumber,
+                        nu_base_true: nuBaseTrue,
+                        a_true: aTrue,
+                        u_max_inlet: uMaxInlet,
+                        x_max: xMax,
+                        y_max: yMax,
+                        x_min: xMin,
+                        y_min: yMin,
+                        n_grid_x: nGridX,
+                        n_grid_y: nGridY,
+                        n_time_slices: nTimeSlices,
+                        name: name,
+                    },
+                    model_path: "/home/brand/pinn_viscosity/backend/results/trained_model.pth",
+                    include_boundary: true,
+                    include_centerline: true,
+                    include_viscosity: true
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                setApiData(data);
+            } else {
+                throw new Error(data.error_message || 'API returned error');
+            }
+        } catch (error: any) {
+            console.error('Error fetching PINN data:', error);
+            setApiError(error);
+        } finally {
+            setLoadingData(false);
+        }
+    };
+    
+
+  // Load Plotly and create plots
   useEffect(() => {
     if (!isClient || typeof window === 'undefined') return
-    
-    // Load d3 first, then Plotly
+
     const loadScript = (src: any) => {
       return new Promise((resolve, reject) => {
         if (document.querySelector(`script[src="${src}"]`)) {
@@ -50,12 +118,12 @@ const FluidViscosityExplainer = () => {
         if (!window.d3) {
           await loadScript('https://d3js.org/d3.v5.min.js')
         }
-        
+
         // Dynamically import Plotly
         const PlotlyModule = await import('plotly.js-dist')
         const Plotly = PlotlyModule.default
-        
-        // Create sample data for plots since external CSV might not load
+
+        // Create sample data if no API data available
         const createSampleData = () => {
           const size = 20
           const data = []
@@ -69,53 +137,90 @@ const FluidViscosityExplainer = () => {
           return data
         }
 
-        // Topographical Plot
-        const z_data = createSampleData()
+        // Function to reshape 1D data to 2D grid
+        const reshapeToGrid = (data: any, nx: any, ny: any) => {
+          const grid = []
+          for (let i = 0; i < ny; i++) {
+            const row = []
+            for (let j = 0; j < nx; j++) {
+              const idx = i * nx + j
+              row.push(data[idx] || 0)
+            }
+            grid.push(row)
+          }
+          return grid
+        }
+
+        // Use API data if available, otherwise use sample data
+        let velocityData, pressureData, viscosityData
+        let gridX = 50, gridY = 25
+
+        if (apiData && (apiData as any).flow_field) {
+          const { flow_field } = apiData
+          gridX = (flow_field as any).grid_shape[0]
+          gridY = (flow_field as any).grid_shape[1]
+
+          velocityData = reshapeToGrid((flow_field as any).velocity_magnitude, gridX, gridY)
+          pressureData = reshapeToGrid((flow_field as any).pressure, gridX, gridY)
+          viscosityData = reshapeToGrid((flow_field as any).viscosity, gridX, gridY)
+        } else {
+          velocityData = createSampleData()
+          pressureData = createSampleData()
+          viscosityData = createSampleData()
+        }
+
+        // Velocity Magnitude Plot
         const data1 = [{
-          z: z_data,
+          z: velocityData,
           type: 'surface',
-          colorscale: 'Viridis'
+          colorscale: 'Viridis',
+          name: 'Velocity Magnitude'
         }]
-        
+
         const layout1 = {
           title: {
-            text: 'Sample 3D Surface Plot',
+            text: apiData ? `Velocity Magnitude Field (Re=${(apiData as any).model_info?.reynolds_number})` : 'Sample Velocity Field',
             font: { color: 'white' }
           },
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(0,0,0,0)',
           scene: {
             bgcolor: 'rgba(0,0,0,0)',
-            xaxis: { gridcolor: 'white', color: 'white' },
-            yaxis: { gridcolor: 'white', color: 'white' },
-            zaxis: { gridcolor: 'white', color: 'white' }
+            xaxis: {
+              title: 'X Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            yaxis: {
+              title: 'Y Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            zaxis: {
+              title: 'Velocity Magnitude',
+              gridcolor: 'white',
+              color: 'white'
+            }
           },
           autosize: true,
           margin: { l: 0, r: 0, b: 0, t: 50 }
         }
-        
-        if (document.getElementById('topographicalPlot')) {
-          Plotly.newPlot('topographicalPlot', data1, layout1, { responsive: true })
+
+        if (document.getElementById('velocityPlot')) {
+          Plotly.newPlot('velocityPlot', data1, layout1, { responsive: true })
         }
-        
-        // Contour Plot
+
+        // Pressure Field Plot
         const data2 = [{
-          z: z_data,
+          z: pressureData,
           type: 'surface',
-          colorscale: 'Electric',
-          contours: {
-            z: {
-              show: true,
-              usecolormap: true,
-              highlightcolor: "#42f462",
-              project: { z: true }
-            }
-          }
+          colorscale: 'RdBu',
+          name: 'Pressure'
         }]
-        
+
         const layout2 = {
           title: {
-            text: 'Surface Plot With Contours',
+            text: apiData ? `Pressure Field (Learned ν param: ${(apiData as any).learned_viscosity_param?.toFixed(4)})` : 'Sample Pressure Field',
             font: { color: 'white' }
           },
           paper_bgcolor: 'rgba(0,0,0,0)',
@@ -123,63 +228,136 @@ const FluidViscosityExplainer = () => {
           scene: {
             bgcolor: 'rgba(0,0,0,0)',
             camera: { eye: { x: 1.87, y: 0.88, z: -0.64 } },
-            xaxis: { gridcolor: 'white', color: 'white' },
-            yaxis: { gridcolor: 'white', color: 'white' },
-            zaxis: { gridcolor: 'white', color: 'white' }
+            xaxis: {
+              title: 'X Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            yaxis: {
+              title: 'Y Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            zaxis: {
+              title: 'Pressure',
+              gridcolor: 'white',
+              color: 'white'
+            }
           },
           autosize: true,
           margin: { l: 0, r: 0, b: 0, t: 50 }
         }
-        
-        if (document.getElementById('contourPlot')) {
-          Plotly.newPlot('contourPlot', data2, layout2, { responsive: true })
+
+        if (document.getElementById('pressurePlot')) {
+          Plotly.newPlot('pressurePlot', data2, layout2, { responsive: true })
         }
-        
-        // Multiple Surface Plots
-        const z1 = createSampleData()
-        const z2 = z1.map(row => row.map(val => val + 2))
-        const z3 = z1.map(row => row.map(val => val - 2))
-        
-        const data3 = [
-          { z: z1, type: 'surface', colorscale: 'Viridis', opacity: 0.8 },
-          { z: z2, type: 'surface', colorscale: 'Plasma', showscale: false, opacity: 0.6 },
-          { z: z3, type: 'surface', colorscale: 'Cividis', showscale: false, opacity: 0.6 }
-        ]
-        
+
+        // Viscosity Field Plot
+        const data3 = [{
+          z: viscosityData,
+          type: 'surface',
+          colorscale: 'Plasma',
+          name: 'Viscosity'
+        }]
+
         const layout3 = {
           title: {
-            text: 'Multiple 3D Surface Plots',
+            text: apiData ? `Viscosity Field Distribution (${(apiData as any).total_points} points)` : 'Sample Viscosity Field',
             font: { color: 'white' }
           },
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(0,0,0,0)',
           scene: {
             bgcolor: 'rgba(0,0,0,0)',
-            xaxis: { gridcolor: 'white', color: 'white' },
-            yaxis: { gridcolor: 'white', color: 'white' },
-            zaxis: { gridcolor: 'white', color: 'white' }
+            xaxis: {
+              title: 'X Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            yaxis: {
+              title: 'Y Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            zaxis: {
+              title: 'Viscosity',
+              gridcolor: 'white',
+              color: 'white'
+            }
           },
           autosize: true,
           margin: { l: 0, r: 0, b: 0, t: 50 }
         }
-        
-        if (document.getElementById('multiplePlot')) {
-          Plotly.newPlot('multiplePlot', data3, layout3, { responsive: true })
+
+        if (document.getElementById('viscosityPlot')) {
+          Plotly.newPlot('viscosityPlot', data3, layout3, { responsive: true })
         }
-        
+
+        // Additional comparison plot
+        const data4 = [
+          {
+            z: velocityData,
+            type: 'surface',
+            colorscale: 'Viridis',
+            opacity: 0.8,
+            name: 'Velocity'
+          },
+          {
+            z: pressureData.map(row => row.map(val => val * 0.5)),
+            type: 'surface',
+            colorscale: 'RdBu',
+            opacity: 0.6,
+            showscale: false,
+            name: 'Pressure (scaled)'
+          }
+        ]
+
+        const layout4 = {
+          title: {
+            text: 'Combined Velocity & Pressure Fields',
+            font: { color: 'white' }
+          },
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)',
+          scene: {
+            bgcolor: 'rgba(0,0,0,0)',
+            xaxis: {
+              title: 'X Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            yaxis: {
+              title: 'Y Position',
+              gridcolor: 'white',
+              color: 'white'
+            },
+            zaxis: {
+              title: 'Field Values',
+              gridcolor: 'white',
+              color: 'white'
+            }
+          },
+          autosize: true,
+          margin: { l: 0, r: 0, b: 0, t: 50 }
+        }
+
+        if (document.getElementById('combinedPlot')) {
+          Plotly.newPlot('combinedPlot', data4, layout4, { responsive: true })
+        }
+
       } catch (error) {
         console.error('Error loading Plotly:', error)
       }
     }
 
     initializePlots()
-  }, [isClient])
+  }, [isClient, apiData])
 
   const handleLevelSelect = (level: any) => {
     setSelectedLevel(level)
     setShowContent(true)
     setTimeout(() => {
-      document.getElementById('explanation-content')?.scrollIntoView({ 
+      document.getElementById('explanation-content')?.scrollIntoView({
         behavior: 'smooth',
         block: 'start'
       })
@@ -369,7 +547,7 @@ Multiple (û,v̂,P̂,ã) combinations can satisfy PDEs with similar accuracy`
         title: "🔍 Results Analysis & Inverse Problem Pathology",
         content: `**Quantitative Performance**:
 - PDE residuals: O(10⁻⁴) - O(10⁻⁵) ✓
-- Flow field MSE: Low, physically consistent ✓  
+- Flow field MSE: Low, physically consistent ✓
 - Parameter error: |ãinf - ãtrue|/|ãtrue| = 2290% ✗
 
 **Root Causes**:
@@ -395,7 +573,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
 
 **Advanced Architectures**:
 • Multi-fidelity networks
-• Domain decomposition PINNs  
+• Domain decomposition PINNs
 • Operator learning approaches
 
 **Regularization Strategies**:
@@ -407,7 +585,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
   }
 
   const getContent = () => {
-    switch(selectedLevel) {
+    switch (selectedLevel) {
       case 'beginner': return beginnerContent
       case 'intermediate': return intermediateContent
       case 'expert': return expertContent
@@ -458,10 +636,10 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                 <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-8">
                   <button
                     onClick={() => handleLevelSelect('beginner')}
-                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
+                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold
                       transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                      ${selectedLevel === 'beginner' 
-                        ? 'bg-blue-600/20 text-white border-blue-400' 
+                      ${selectedLevel === 'beginner'
+                        ? 'bg-blue-600/20 text-white border-blue-400'
                         : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
                       }`}
                   >
@@ -469,10 +647,10 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                   </button>
                   <button
                     onClick={() => handleLevelSelect('intermediate')}
-                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
+                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold
                       transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                      ${selectedLevel === 'intermediate' 
-                        ? 'bg-blue-600/20 text-white border-blue-400' 
+                      ${selectedLevel === 'intermediate'
+                        ? 'bg-blue-600/20 text-white border-blue-400'
                         : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
                       }`}
                   >
@@ -480,17 +658,17 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                   </button>
                   <button
                     onClick={() => handleLevelSelect('expert')}
-                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold 
+                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold
                       transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                      ${selectedLevel === 'expert' 
-                        ? 'bg-blue-600/20 text-white border-blue-400' 
+                      ${selectedLevel === 'expert'
+                        ? 'bg-blue-600/20 text-white border-blue-400'
                         : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
                       }`}
                   >
                     🔬 Expert
                   </button>
                 </div>
-              </div>  
+              </div>
             </div>
           </div>
         </section>
@@ -505,10 +683,10 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                 <h2 className="text-5xl font-bold text-white mb-10 text-center">
                   {currentContent.title}
                 </h2>
-                
+
                 <div className="space-y-12">
                   {currentContent.sections.map((section, index) => (
-                    <div 
+                    <div
                       key={index}
                       className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl transform transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl"
                     >
@@ -558,30 +736,221 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
         )}
       </div>
 
-      {/* 3D Surface Plots Section */}
+      {/* PINN Data Visualization Section */}
       <section className="py-16 px-4 min-h-screen" style={{
         scrollSnapAlign: 'start'
       }}>
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-4xl font-bold text-white mb-10 text-center">3D Surface Plots</h2>
-          
-          <div className="space-y-16">
-            {/* Topographical Plot */}
+          <h2 className="text-4xl font-bold text-white mb-10 text-center">PINN Model Predictions</h2>
+
+          {/* API Controls */}
+          <div className="mb-12 text-center">
+
+            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 mb-8 shadow-xl">
+                            <h3 className="text-xl font-bold text-blue-300 mb-4">PINN Model Parameters</h3>
+
+                            {/* Parameter Inputs */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div>
+                                    <label htmlFor="reynoldsNumber" className="block text-gray-300 text-sm font-bold mb-2">Reynolds Number</label>
+                                    <input
+                                        type="number"
+                                        id="reynoldsNumber"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={reynoldsNumber}
+                                        onChange={(e) => setReynoldsNumber(parseFloat(e.target.value))}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="nuBaseTrue" className="block text-gray-300 text-sm font-bold mb-2">Base Viscosity</label>
+                                    <input
+                                        type="number"
+                                        id="nuBaseTrue"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={nuBaseTrue}
+                                        onChange={(e) => setNuBaseTrue(parseFloat(e.target.value))}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="aTrue" className="block text-gray-300 text-sm font-bold mb-2">Viscosity Gradient</label>
+                                    <input
+                                        type="number"
+                                        id="aTrue"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={aTrue}
+                                        onChange={(e) => setATrue(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                 <div>
+                                    <label htmlFor="uMaxInlet" className="block text-gray-300 text-sm font-bold mb-2">Max Inlet Velocity</label>
+                                    <input
+                                        type="number"
+                                        id="uMaxInlet"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={uMaxInlet}
+                                        onChange={(e) => setUMaxInlet(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="xMax" className="block text-gray-300 text-sm font-bold mb-2">Max X</label>
+                                    <input
+                                        type="number"
+                                        id="xMax"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={xMax}
+                                        onChange={(e) => setXMax(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                 <div>
+                                    <label htmlFor="yMax" className="block text-gray-300 text-sm font-bold mb-2">Max Y</label>
+                                    <input
+                                        type="number"
+                                        id="yMax"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight  focus:outline-none focus:shadow-outline"
+                                        value={yMax}
+                                        onChange={(e) => setYMax(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="xMin" className="block text-gray-300 text-sm font-bold mb-2">Min X</label>
+                                    <input
+                                        type="number"
+                                        id="xMin"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={xMin}
+                                        onChange={(e) => setXMin(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                 <div>
+                                    <label htmlFor="yMin" className="block text-gray-300 text-sm font-bold mb-2">Min Y</label>
+                                    <input
+                                        type="number"
+                                        id="yMin"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={yMin}
+                                        onChange={(e) => setYMin(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                 <div>
+                                    <label htmlFor="nGridX" className="block text-gray-300 text-sm font-bold mb-2">Grid X</label>
+                                    <input
+                                        type="number"
+                                        id="nGridX"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={nGridX}
+                                        onChange={(e) => setNGridX(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                 <div>
+                                    <label htmlFor="nGridY" className="block text-gray-300 text-sm font-bold mb-2">Grid Y</label>
+                                    <input
+                                        type="number"
+                                        id="nGridY"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={nGridY}
+                                        onChange={(e) => setNGridY(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                 <div>
+                                    <label htmlFor="nTimeSlices" className="block text-gray-300 text-sm font-bold mb-2">Time Slices</label>
+                                    <input
+                                        type="number"
+                                        id="nTimeSlices"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={nTimeSlices}
+                                        onChange={(e) => setNTimeSlices(parseFloat(e.target.value))}
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="name" className="block text-gray-300 text-sm font-bold mb-2">Name</label>
+                                    <input
+                                        type="text"
+                                        id="name"
+                                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={fetchPINNData}
+                                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                                type="button"
+                                disabled={loadingData}
+                            >
+                                {loadingData ? 'Loading...' : 'Fetch PINN Data'}
+                            </button>
+                            {apiError && <div className="text-red-500 mt-4">Error: {String(apiError)}</div>}
+                        </div>
+
+            {/* Velocity Field Plot */}
+            <h3 className="text-2xl font-bold text-blue-300 mb-6">Velocity Magnitude Field</h3>
+            <div id="velocityPlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+            <p className="text-gray-300 mt-4 text-center">
+              Interactive 3D visualization of fluid velocity distribution across the domain
+            </p>
+
+            {/* Pressure Field Plot */}
             <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
-              <h3 className="text-2xl font-bold text-blue-300 mb-6">Interactive 3D Surface Plot</h3>
-              <div id="topographicalPlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+              <h3 className="text-2xl font-bold text-blue-300 mb-6">Pressure Field Distribution</h3>
+              <div id="pressurePlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+              <p className="text-gray-300 mt-4 text-center">
+                Pressure field showing how pressure varies throughout the fluid domain
+              </p>
             </div>
-            
-            {/* Contour Plot */}
+
+            {/* Viscosity Field Plot */}
             <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
-              <h3 className="text-2xl font-bold text-blue-300 mb-6">Surface Plot With Contours</h3>
-              <div id="contourPlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+              <h3 className="text-2xl font-bold text-blue-300 mb-6">Viscosity Field Distribution</h3>
+              <div id="viscosityPlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+              <p className="text-gray-300 mt-4 text-center">
+                Spatial variation of fluid viscosity as predicted by the PINN model
+              </p>
             </div>
-            
-            {/* Multiple Surface Plots */}
-            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
-              <h3 className="text-2xl font-bold text-blue-300 mb-6">Multiple 3D Surface Plots</h3>
-              <div id="multiplePlot" className="w-full h-[500px] mx-auto bg-black/20 rounded-lg"></div>
+          </div>
+
+          {/* Model Performance Metrics */}
+          {apiData && (
+            <div className="mt-16 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl">
+              <h3 className="text-2xl font-bold text-blue-300 mb-6 text-center">Model Performance Metrics</h3>
+              <div className="grid md:grid-cols-3 gap-8 text-center">
+                <div className="bg-gradient-to-br from-blue-600/20 to-cyan-600/20 p-6 rounded-xl">
+                  <h4 className="text-lg font-semibold text-cyan-300 mb-2">Reynolds Number</h4>
+                  <p className="text-3xl font-bold text-white">{(apiData as any)?.model_info?.reynolds_number}</p>
+                </div>
+                <div className="bg-gradient-to-br from-purple-600/20 to-pink-600/20 p-6 rounded-xl">
+                  <h4 className="text-lg font-semibold text-pink-300 mb-2">Learned Parameter</h4>
+                  <p className="text-3xl font-bold text-white">{(apiData as any)?.learned_viscosity_param?.toFixed(4) || 'N/A'}</p>
+                </div>
+                <div className="bg-gradient-to-br from-green-600/20 to-emerald-600/20 p-6 rounded-xl">
+                  <h4 className="text-lg font-semibold text-emerald-300 mb-2">Processing Time</h4>
+                  <p className="text-3xl font-bold text-white">{(apiData as any)?.processing_time?.toFixed(2)}s</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Footer Section */}
+      <section className="py-16 px-4" style={{
+        scrollSnapAlign: 'start'
+      }}>
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="backdrop-blur-xl bg-gradient-to-r from-slate-800/30 to-gray-800/30 border border-white/10 rounded-2xl p-8 shadow-xl">
+            <h3 className="text-2xl font-bold text-white mb-4">Research Impact</h3>
+            <p className="text-gray-300 text-lg leading-relaxed">
+              This work demonstrates both the potential and limitations of Physics-Informed Neural Networks
+              for inverse problems in fluid dynamics. While excellent at flow field reconstruction, the challenge
+              of parameter identification highlights the need for improved methodologies in computational fluid dynamics.
+            </p>
+            <div className="mt-8 flex justify-center space-x-4">
+              <div className="text-blue-300 font-semibold">🔬 Computational Physics</div>
+              <div className="text-purple-300 font-semibold">🤖 Machine Learning</div>
+              <div className="text-cyan-300 font-semibold">🌊 Fluid Dynamics</div>
             </div>
           </div>
         </div>

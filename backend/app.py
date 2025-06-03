@@ -6,7 +6,7 @@ This FastAPI application provides REST endpoints to run PINN model inference
 and return data suitable for frontend plotting.
 
 Usage:
-    uvicorn app:app --reload --host 0.0.0.0 --port 5000
+    uvicorn app:app --reload --host 0.0.0.0 --port 8000
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -50,7 +50,7 @@ app = FastAPI(
 # Add CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this for production
+    allow_origins=["http://localhost:3000"],  # Configure this for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -618,4 +618,4 @@ async def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
