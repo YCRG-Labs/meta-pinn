@@ -11,10 +11,14 @@ const FluidViscosityExplainer = () => {
   const [loadingData, setLoadingData] = useState(false)
   const [apiError, setApiError] = useState(null)
 
-  // State for parameter inputs
-  const [reynoldsNumber, setReynoldsNumber] = useState(100)
-  const [nuBaseTrue, setNuBaseTrue] = useState(0.01)
-  const [aTrue, setATrue] = useState(0.05)
+  // Constants (not user-editable)
+  const REYNOLDS_NUMBER = 100;
+  const BACKEND_URL = "http://localhost:8000";
+  const MODEL_PATH = "backend/results/trained_model.pth";
+
+  // State for parameter inputs (sliders)
+  const [nuBaseTrue, setNuBaseTrue] = useState(0.01);
+  const [aTrue, setATrue] = useState(0.05);
   const [uMaxInlet, setUMaxInlet] = useState(1.0);
   const [xMax, setXMax] = useState(2.0);
   const [yMax, setYMax] = useState(1.0);
@@ -24,10 +28,6 @@ const FluidViscosityExplainer = () => {
   const [nGridY, setNGridY] = useState(25);
   const [nTimeSlices, setNTimeSlices] = useState(5);
   const [name, setName] = useState("Frontend Visualization");
-  
-  // Add model path configuration
-  const [modelPath, setModelPath] = useState("backend/results/trained_model.pth");
-  const [backendUrl, setBackendUrl] = useState("http://localhost:8000");
   
   // Fix hydration by ensuring client-side rendering
   useEffect(() => {
@@ -52,14 +52,14 @@ const FluidViscosityExplainer = () => {
     setApiError(null);
 
     try {
-      const response = await fetch(`${backendUrl}/inference/single`, {
+      const response = await fetch(`${BACKEND_URL}/inference/single`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           parameters: {
-            reynolds_number: parseFloat(String(reynoldsNumber)),
+            reynolds_number: REYNOLDS_NUMBER,
             nu_base_true: parseFloat(String(nuBaseTrue)),
             a_true: parseFloat(String(aTrue)),
             u_max_inlet: parseFloat(String(uMaxInlet)),
@@ -72,7 +72,7 @@ const FluidViscosityExplainer = () => {
             n_time_slices: parseInt(String(nTimeSlices), 10),
             name: name,
           },
-          model_path: modelPath,
+          model_path: MODEL_PATH,
           include_boundary: true,
           include_centerline: true,
           include_viscosity: true
@@ -100,12 +100,12 @@ const FluidViscosityExplainer = () => {
 
   // Test backend connection
   const testBackendConnection = async () => {
-    if (!backendUrl) {
+    if (!BACKEND_URL) {
         console.warn('Backend URL is not set.');
         return false;
     }
     try {
-      const response = await fetch(`${backendUrl}/health`);
+      const response = await fetch(`${BACKEND_URL}/health`);
       if (response.ok) {
         console.log('Backend connection successful');
         alert('Backend connection successful!');
@@ -216,41 +216,56 @@ const FluidViscosityExplainer = () => {
         };
 
         if (document.getElementById('velocityPlot')) {
-          Plotly.newPlot('velocityPlot', [{ z: velocityData, type: 'surface', colorscale: 'Viridis', name: 'Velocity' }] as any, {
+          Plotly.newPlot('velocityPlot', [{
+            z: velocityData,
+            type: 'surface',
+            colorscale: 'Viridis',
+            name: 'U Velocity'
+          }], {
             ...commonLayoutProps,
-            title: { text: apiData ? `Velocity Magnitude (Re=${(apiData as any).model_info?.reynolds_number})` : 'Sample Velocity', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity Mag.' } }
-          } as any, { responsive: true });
+            title: { text: 'U Velocity Field (3D Surface)', font: { color: 'white' } },
+            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity' } }
+          }, { responsive: true });
         }
 
         if (document.getElementById('pressurePlot')) {
-          Plotly.newPlot('pressurePlot', [{ z: pressureData, type: 'surface', colorscale: 'RdBu', name: 'Pressure' }] as any, {
+          Plotly.newPlot('pressurePlot', [{
+            z: pressureData,
+            type: 'surface',
+            colorscale: 'RdBu',
+            name: 'Pressure'
+          }], {
             ...commonLayoutProps,
-            title: { text: apiData ? `Pressure Field (Learned ν: ${(apiData as any).learned_viscosity_param?.toFixed(4)})` : 'Sample Pressure', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, camera: { eye: { x: 1.87, y: 0.88, z: -0.64 } }, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Pressure' } }
-          } as any, { responsive: true });
+            title: { text: 'Pressure Field (3D Surface)', font: { color: 'white' } },
+            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Pressure' } }
+          }, { responsive: true });
         }
 
-        if (document.getElementById('viscosityPlot')) {
-          Plotly.newPlot('viscosityPlot', [{ z: viscosityData, type: 'surface', colorscale: 'Plasma', name: 'Viscosity' }] as any, {
+        if (document.getElementById('velocityMagPlot')) {
+          Plotly.newPlot('velocityMagPlot', [{
+            z: velocityData, // or velocity magnitude data if different
+            type: 'surface',
+            colorscale: 'Viridis',
+            name: 'Velocity Magnitude'
+          }], {
             ...commonLayoutProps,
-            title: { text: apiData ? `Viscosity Field (${(apiData as any).total_points} pts)` : 'Sample Viscosity', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Viscosity' } }
-          } as any, { responsive: true });
-        }
-        
-        if (document.getElementById('combinedPlot') && velocityData && pressureData) {
-            const combinedData: any[] = [
-                { z: velocityData, type: 'surface', colorscale: 'Viridis', opacity: 0.8, name: 'Velocity' },
-                { z: pressureData.map(row => row.map(val => val * 0.5)), type: 'surface', colorscale: 'RdBu', opacity: 0.6, showscale: false, name: 'Pressure (scaled)' }
-            ];
-            Plotly.newPlot('combinedPlot', combinedData, {
-                ...commonLayoutProps,
-                title: { text: 'Combined Velocity & Scaled Pressure', font: { color: 'white' } },
-                scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Field Values' } }
-            } as any, { responsive: true });
+            title: { text: 'Velocity Magnitude (3D Surface)', font: { color: 'white' } },
+            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity Magnitude' } }
+          }, { responsive: true });
         }
 
+        if (document.getElementById('vorticityPlot')) {
+          Plotly.newPlot('vorticityPlot', [{
+            z: viscosityData,
+            type: 'surface',
+            colorscale: 'RdBu',
+            name: 'Vorticity'
+          }], {
+            ...commonLayoutProps,
+            title: { text: 'Vorticity Field (3D Surface)', font: { color: 'white' } },
+            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Vorticity' } }
+          }, { responsive: true });
+        }
 
       } catch (error) {
         console.error('Error loading/initializing Plotly:', error)
@@ -521,16 +536,18 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
     </div>
   }
 
-  const renderInputField = (label: string, id: string, value: string | number, setter: (value: any) => void, type = "number", step = "any") => (
+  const renderSlider = (label: string, id: string, value: number, setter: (value: number) => void, min: number, max: number, step: number, unit?: string) => (
     <div className="mb-4">
-      <label htmlFor={id} className="block text-sm font-medium text-blue-200 mb-1">{label}:</label>
+      <label htmlFor={id} className="block text-sm font-medium text-blue-200 mb-1">{label}: <span className="text-blue-100 font-bold">{value}{unit ? ` ${unit}` : ''}</span></label>
       <input
-        type={type}
+        type="range"
         id={id}
         value={value}
-        onChange={(e) => setter(type === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
+        min={min}
+        max={max}
         step={step}
-        className="w-full p-2.5 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+        onChange={e => setter(Number(e.target.value))}
+        className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gray-300 [&::-webkit-slider-thumb]:cursor-pointer"
       />
     </div>
   );
@@ -680,26 +697,13 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                   {/* Parameter Inputs Column */}
                   <div className="md:col-span-1 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
                     <h3 className="text-2xl font-semibold text-blue-300 mb-6">Simulation Parameters</h3>
-                    {renderInputField("Reynolds Number", "reynoldsNumber", reynoldsNumber, setReynoldsNumber)}
-                    {renderInputField("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, "number", "0.001")}
-                    {renderInputField("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, "number", "0.01")}
-                    {renderInputField("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet)}
-                    
-                    <h4 className="text-xl font-semibold text-blue-200 mt-6 mb-3">Domain & Grid</h4>
-                    {renderInputField("X Max", "xMax", xMax, setXMax)}
-                    {renderInputField("Y Max", "yMax", yMax, setYMax)}
-                    {renderInputField("X Min", "xMin", xMin, setXMin)}
-                    {renderInputField("Y Min", "yMin", yMin, setYMin)}
-                    {renderInputField("Grid Points X (n_grid_x)", "nGridX", nGridX, setNGridX, "number", "1")}
-                    {renderInputField("Grid Points Y (n_grid_y)", "nGridY", nGridY, setNGridY, "number", "1")}
-                    {/* {renderInputField("Time Slices (n_time_slices)", "nTimeSlices", nTimeSlices, setNTimeSlices, "number", "1")} */}
-                    {/* {renderInputField("Case Name", "name", name, setName, "text")} */}
-
-                    <h4 className="text-xl font-semibold text-blue-200 mt-6 mb-3">Backend & Model</h4>
-                    {renderInputField("Backend URL", "backendUrl", backendUrl, setBackendUrl, "text")}
-                    {renderInputField("Model Path", "modelPath", modelPath, setModelPath, "text")}
-
-
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
+                      <span className="text-blue-100 font-bold">{REYNOLDS_NUMBER}</span>
+                    </div>
+                    {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
+                    {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
+                    {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
                     <button
                       onClick={fetchPINNData}
                       disabled={loadingData}
@@ -722,11 +726,11 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                   </div>
 
                   {/* Plots Column */}
-                  <div className="md:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div id="velocityPlot" className="w-full h-[400px] md:h-[500px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
-                    <div id="pressurePlot" className="w-full h-[400px] md:h-[500px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
-                    <div id="viscosityPlot" className="w-full h-[400px] md:h-[500px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
-                    <div id="combinedPlot" className="w-full h-[400px] md:h-[500px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
+                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div id="velocityPlot" className="w-full h-[400px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
+                    <div id="pressurePlot" className="w-full h-[400px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
+                    <div id="velocityMagPlot" className="w-full h-[400px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
+                    <div id="vorticityPlot" className="w-full h-[400px] bg-white/5 border border-white/10 rounded-xl shadow-xl p-2"></div>
                   </div>
                 </div>
                 { !apiData && !loadingData && (
