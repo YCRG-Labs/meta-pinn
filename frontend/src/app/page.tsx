@@ -26,7 +26,7 @@ const FluidViscosityExplainer = () => {
   const [name, setName] = useState("Frontend Visualization");
   
   // Add model path configuration
-  const [modelPath, setModelPath] = useState("./results/trained_model.pth");
+  const [modelPath, setModelPath] = useState("backend/results/trained_model.pth");
   const [backendUrl, setBackendUrl] = useState("http://localhost:8000");
   
   // Fix hydration by ensuring client-side rendering
@@ -200,11 +200,6 @@ const FluidViscosityExplainer = () => {
           velocityData = reshapeToGrid((flow_field as any).velocity_magnitude, currentGridX, currentGridY);
           pressureData = reshapeToGrid((flow_field as any).pressure, currentGridX, currentGridY);
           viscosityData = reshapeToGrid((flow_field as any).viscosity, currentGridX, currentGridY);
-        } else {
-          // When no API data, use sample data with current grid settings
-          velocityData = createSampleData() // Sample data is 20x20, not tied to nGridX/Y
-          pressureData = createSampleData()
-          viscosityData = createSampleData()
         }
         
         const commonLayoutProps = {

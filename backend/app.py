@@ -24,6 +24,7 @@ from pathlib import Path
 import uuid
 import asyncio
 from datetime import datetime
+import torch
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +58,17 @@ app.add_middleware(
 )
 
 # Default model path
-DEFAULT_MODEL_PATH = "/home/brand/pinn_viscosity/backend/results/trained_model.pth"
+DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "trained_model.pth")
+print(f"Looking for model at: {DEFAULT_MODEL_PATH}")  # Debug print
+
+def resolve_model_path(model_path: str) -> str:
+    """Resolve model path to absolute path, handling both relative and absolute paths"""
+    if os.path.isabs(model_path):
+        return model_path
+    # If path starts with 'backend/', remove it since we're already in the backend directory
+    if model_path.startswith('backend/'):
+        model_path = model_path[8:]  # Remove 'backend/' prefix
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), model_path)
 
 # Pydantic models for API
 class InferenceParameters(BaseModel):
@@ -133,15 +144,15 @@ class InferenceResponse(BaseModel):
     """Response model for inference results"""
     success: bool = Field(description="Whether inference was successful")
     session_id: str = Field(description="Unique session identifier")
-    learned_viscosity_param: float = Field(description="Learned viscosity parameter")
-    total_points: int = Field(description="Total number of inference points")
-    processing_time: float = Field(description="Processing time in seconds")
-    flow_field: Optional[FlowFieldData] = Field(description="Flow field data")
-    boundary_data: Optional[BoundaryData] = Field(description="Boundary analysis data")
-    centerline_data: Optional[CenterlineData] = Field(description="Centerline analysis data")
-    viscosity_profile: Optional[ViscosityProfileData] = Field(description="Viscosity profile data")
-    model_info: Dict[str, Any] = Field(description="Model information")
-    error_message: Optional[str] = Field(description="Error message if failed")
+    learned_viscosity_param: float = Field(default=0.0, description="Learned viscosity parameter")
+    total_points: int = Field(default=0, description="Total number of inference points")
+    processing_time: float = Field(default=0.0, description="Processing time in seconds")
+    flow_field: Optional[FlowFieldData] = Field(default=None, description="Flow field data")
+    boundary_data: Optional[BoundaryData] = Field(default=None, description="Boundary analysis data")
+    centerline_data: Optional[CenterlineData] = Field(default=None, description="Centerline analysis data")
+    viscosity_profile: Optional[ViscosityProfileData] = Field(default=None, description="Viscosity profile data")
+    model_info: Dict[str, Any] = Field(default_factory=dict, description="Model information")
+    error_message: Optional[str] = Field(default=None, description="Error message if failed")
 
 class MultiInferenceResponse(BaseModel):
     """Response model for multiple inference scenarios"""
@@ -213,50 +224,67 @@ async def health_check():
 async def get_model_info(model_path: str = DEFAULT_MODEL_PATH):
     """Get information about the trained model"""
     try:
-        # Check if model file exists
-        if not os.path.exists(model_path):
+        # Resolve model path
+        resolved_path = resolve_model_path(model_path)
+        print(f"Resolved model path: {resolved_path}")  # Debug print
+        
+        if not os.path.exists(resolved_path):
             return ModelInfoResponse(
                 success=False,
-                model_path=model_path,
+                model_path=resolved_path,
                 learned_viscosity_param=0.0,
                 model_architecture=[],
                 uses_fourier_features=False,
                 uses_adaptive_weights=False,
                 model_exists=False,
-                error_message=f"Model file not found: {model_path}"
+                error_message=f"Model file not found: {resolved_path}"
             )
+            
+        # Load checkpoint to inspect saved configuration
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        checkpoint = torch.load(resolved_path, map_location=device)
         
-        # Create temporary config for model loading
-        temp_config = create_inference_config()
+        # Extract model information
+        model_info = {
+            'model_path': resolved_path,
+            'model_exists': True,
+            'learned_viscosity_param': 0.0,  # Will be updated if available
+            'model_architecture': [],
+            'uses_fourier_features': False,
+            'uses_adaptive_weights': False
+        }
         
-        # Load model to get information
-        model, config = load_trained_model(model_path, temp_config)
+        if 'config' in checkpoint:
+            saved_config = checkpoint['config']
+            if 'layers' in saved_config:
+                model_info['model_architecture'] = saved_config['layers']
+            if 'use_fourier_features' in saved_config:
+                model_info['uses_fourier_features'] = saved_config['use_fourier_features']
+            if 'use_adaptive_weights' in saved_config:
+                model_info['uses_adaptive_weights'] = saved_config['use_adaptive_weights']
+            if 'nu_base' in saved_config:
+                model_info['learned_viscosity_param'] = saved_config['nu_base']
         
         return ModelInfoResponse(
             success=True,
-            model_path=model_path,
-            learned_viscosity_param=model.get_inferred_viscosity_param(),
-            model_architecture=config.PINN_LAYERS,
-            uses_fourier_features=config.USE_FOURIER_FEATURES,
-            uses_adaptive_weights=config.USE_ADAPTIVE_WEIGHTS,
-            model_exists=True
+            **model_info
         )
         
     except Exception as e:
         return ModelInfoResponse(
             success=False,
-            model_path=model_path,
+            model_path=resolved_path,
             learned_viscosity_param=0.0,
             model_architecture=[],
             uses_fourier_features=False,
             uses_adaptive_weights=False,
-            model_exists=os.path.exists(model_path),
+            model_exists=False,
             error_message=str(e)
         )
 
 @app.post("/inference/single", response_model=InferenceResponse)
 async def run_single_inference(request: InferenceRequest):
-    """Run single inference session"""
+    """Run single inference with specified parameters"""
     session_id = str(uuid.uuid4())
     temp_dir = None
     
@@ -264,10 +292,13 @@ async def run_single_inference(request: InferenceRequest):
         # Create temporary directory
         temp_dir = create_temp_directory()
         
-        # Check if model exists
-        if not os.path.exists(request.model_path):
-            raise HTTPException(status_code=404, detail=f"Model file not found: {request.model_path}")
+        # Resolve model path
+        model_path = resolve_model_path(request.model_path)
+        print(f"Resolved model path: {model_path}")  # Debug print
         
+        if not os.path.exists(model_path):
+            raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
+            
         # Create inference configuration
         inference_config = create_inference_config(
             reynolds_number=request.parameters.reynolds_number,
@@ -285,7 +316,7 @@ async def run_single_inference(request: InferenceRequest):
         )
         
         # Load trained model
-        model, inference_config = load_trained_model(request.model_path, inference_config)
+        model, inference_config = load_trained_model(model_path, inference_config)
         
         # Set output directory to temp directory
         inference_config.OUTPUT_DIR = temp_dir
