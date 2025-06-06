@@ -10,6 +10,7 @@ const FluidViscosityExplainer = () => {
   const [apiData, setApiData] = useState(null)
   const [loadingData, setLoadingData] = useState(false)
   const [apiError, setApiError] = useState(null)
+  const [fadeOutOverlay, setFadeOutOverlay] = useState(false)
 
   // Constants (not user-editable)
   const REYNOLDS_NUMBER = 100;
@@ -24,7 +25,7 @@ const FluidViscosityExplainer = () => {
   const [yMax, setYMax] = useState(1.0);
   const [xMin, setXMin] = useState(0.0);
   const [yMin, setYMin] = useState(0.0);
-  const [nGridX, setNGridX] = useState(50);
+  const [nGridX, setNGridX] = useState(25);
   const [nGridY, setNGridY] = useState(25);
   const [nTimeSlices, setNTimeSlices] = useState(5);
   const [name, setName] = useState("Frontend Visualization");
@@ -199,7 +200,7 @@ const FluidViscosityExplainer = () => {
 
           velocityData = reshapeToGrid((flow_field as any).velocity_magnitude, currentGridX, currentGridY);
           pressureData = reshapeToGrid((flow_field as any).pressure, currentGridX, currentGridY);
-          viscosityData = reshapeToGrid((flow_field as any).viscosity, currentGridX, currentGridY);
+          viscosityData = reshapeToGrid((flow_field as any).vorticity, currentGridX, currentGridY);
         }
         
         const commonLayoutProps = {
@@ -254,12 +255,15 @@ const FluidViscosityExplainer = () => {
           }, { responsive: true });
         }
 
-        if (document.getElementById('vorticityPlot')) {
+        if (document.getElementById('vorticityPlot') && viscosityData) {
+          const maxAbsVorticity = Math.max(...viscosityData.flat().map(Math.abs));
           Plotly.newPlot('vorticityPlot', [{
             z: viscosityData,
             type: 'surface',
             colorscale: 'RdBu',
-            name: 'Vorticity'
+            name: 'Vorticity',
+            zmin: -maxAbsVorticity,
+            zmax: maxAbsVorticity
           }], {
             ...commonLayoutProps,
             title: { text: 'Vorticity Field (3D Surface)', font: { color: 'white' } },
@@ -288,15 +292,18 @@ const FluidViscosityExplainer = () => {
   }, [isClient, apiData, showContent, nGridX, nGridY]) // Re-run if apiData, showContent, or grid dimensions change
 
   const handleLevelSelect = (level: string) => {
-    setSelectedLevel(level)
-    setShowContent(true)
-    setApiData(null); // Clear previous API data/plots when changing level to show fresh sample plots
+    setSelectedLevel(level);
+    setFadeOutOverlay(true);
     setTimeout(() => {
-      document.getElementById('explanation-content')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-      })
-    }, 100)
+      setShowContent(true);
+      setFadeOutOverlay(false);
+      setTimeout(() => {
+        const el = document.getElementById('explanation-content');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 50); // slight delay to ensure content is rendered
+    }, 500); // Duration matches the transition
   }
 
   const beginnerContent = {
@@ -530,6 +537,29 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
 
   const currentContent = getContent()
 
+  const renderLearningLevelButtons = () => (
+    <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-8">
+      <button
+        onClick={() => handleLevelSelect('beginner')}
+        className="px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-xl bg-blue-600/20 text-white border-blue-400 shadow-blue-500/50"
+      >
+        🌟 Beginner
+      </button>
+      <button
+        onClick={() => handleLevelSelect('intermediate')}
+        className="px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-xl bg-green-600/20 text-white border-green-400 shadow-green-500/50"
+      >
+        🎓 Intermediate
+      </button>
+      <button
+        onClick={() => handleLevelSelect('expert')}
+        className="px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-xl bg-purple-600/20 text-white border-purple-400 shadow-purple-500/50"
+      >
+        🔬 Expert
+      </button>
+    </div>
+  );
+
   if (!isClient) {
     return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 flex items-center justify-center">
       <div className="text-white text-xl">Loading...</div>
@@ -557,69 +587,35 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900" style={{
       scrollSnapType: 'y mandatory'
     }}>
-      {/* Hero Section */}
-      <section className={`relative transition-all duration-1000 ${isScrolled ? 'h-16' : 'h-screen'}`} style={{
-        scrollSnapAlign: 'start'
-      }}>
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm"></div>
-        <div className="relative h-full flex items-center justify-center">
-          <div className="text-center px-4">
-            <h1 className={`transition-all duration-500 py-3 font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-white to-indigo-300 ${
-              isScrolled ? 'text-3xl md:text-5xl' : 'text-4xl md:text-8xl'
-            }`}>
-              Inferring Spatial Fluid Viscosity
-            </h1>
-            {!isScrolled && (
-              <div className="mt-8 text-blue-200 animate-bounce">↓ Scroll Down ↓</div>
-            )}
+      {!showContent && (
+        <div
+          className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 bg-opacity-95 transition-opacity duration-400 ${fadeOutOverlay ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+          style={{ minHeight: '100vh' }}
+        >
+          <div className="max-w-2xl w-full p-8 rounded-2xl shadow-2xl bg-white/10 border border-white/20 text-center">
+            <h2 className="text-4xl font-bold text-white mb-8">Choose Your Learning Level</h2>
+            {renderLearningLevelButtons()}
           </div>
         </div>
-      </section>
+      )}
+
+      {/* Header/Navbar */}
+      <header className="sticky top-0 z-40 w-full py-6 px-4 bg-gradient-to-r from-blue-800/80 via-indigo-900/80 to-purple-900/80 shadow-lg flex items-center justify-center">
+        <h1 className="font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-white to-indigo-300 text-3xl md:text-4xl tracking-tight">
+          Inferring Spatial Fluid Viscosity
+        </h1>
+      </header>
 
       {/* Content Section */}
-      <div className={`transition-all duration-1000 ${isScrolled ? 'opacity-100' : 'opacity-0'}`}>
+      <div className={`transition-all duration-1000`}>
         <section className="relative py-16 px-4 min-h-screen flex items-center" style={{
           scrollSnapAlign: 'start'
         }}>
           <div className="w-full">
             <h2 className="text-4xl font-bold text-white mb-8 text-center">Choose Your Learning Level</h2>
             <div className="max-w-4xl mx-auto">
-              <div className="border border-white/10 rounded-3xl p-8 md:p-12 shadow-2xl backdrop-blur-md bg-white/5">
-                <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-8">
-                  <button
-                    onClick={() => handleLevelSelect('beginner')}
-                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold
-                      transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                      ${selectedLevel === 'beginner'
-                        ? 'bg-blue-600/20 text-white border-blue-400 shadow-blue-500/50'
-                        : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-white to-indigo-400 hover:from-blue-300 hover:to-indigo-300'
-                      }`}
-                  >
-                    🌟 Beginner
-                  </button>
-                  <button
-                    onClick={() => handleLevelSelect('intermediate')}
-                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold
-                      transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                      ${selectedLevel === 'intermediate'
-                        ? 'bg-green-600/20 text-white border-green-400 shadow-green-500/50'
-                        : 'text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-white to-teal-400 hover:from-green-300 hover:to-teal-300'
-                      }`}
-                  >
-                    🎓 Intermediate
-                  </button>
-                  <button
-                    onClick={() => handleLevelSelect('expert')}
-                    className={`px-8 py-4 backdrop-blur-xl border border-white/30 rounded-full font-semibold
-                      transition-all duration-300 transform hover:scale-105 hover:shadow-xl
-                      ${selectedLevel === 'expert'
-                        ? 'bg-purple-600/20 text-white border-purple-400 shadow-purple-500/50'
-                        : 'text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-white to-pink-400 hover:from-purple-300 hover:to-pink-300'
-                      }`}
-                  >
-                    🔬 Expert
-                  </button>
-                </div>
+              <div className="border border-white/10 rounded-3xl p-8 md:p-12 shadow-2xl backdrop-blur-md bg-white/5 text-center">
+                {renderLearningLevelButtons()}
               </div>
             </div>
           </div>
@@ -628,7 +624,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
         {/* Explanation Content & Visualization - only shown after level selection */}
         {showContent && currentContent && (
           <>
-            <section id="explanation-content" className="py-16 px-4 min-h-screen" style={{
+            <section id="explanation-content" className="py-30 px-4 min-h-screen" style={{
               scrollSnapAlign: 'start'
             }}>
               <div className="max-w-6xl mx-auto">
@@ -640,7 +636,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                   {currentContent.sections.map((section, index) => (
                     <div
                       key={index}
-                      className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl transform transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl"
+                      className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-8 shadow-xl transform transition-all duration-500"
                     >
                       <h3 className="text-2xl font-bold text-blue-300 mb-6 flex items-center gap-3">
                         {section.title}
@@ -740,11 +736,23 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                 )}
                  { apiData && (
                     <div className="mt-8 p-6 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl shadow-xl text-blue-200">
-                        <h4 className="text-xl font-semibold mb-2">Inference Details:</h4>
-                        <p>• Reynolds Number Used: {(apiData as any).model_info?.reynolds_number}</p>
-                        <p>• Learned Viscosity Parameter (ã): {(apiData as any).learned_viscosity_param?.toFixed(5)}</p>
-                        <p>• Total Points in Flow Field: {(apiData as any).total_points}</p>
-                        <p>• Grid Shape: [{(apiData as any).flow_field?.grid_shape.join(', ')}]</p>
+                        <h4 className="text-xl font-semibold mb-4">Graph Explanations</h4>
+                        <div className="mb-4">
+                          <h5 className="text-lg font-bold text-blue-300 mb-1">U Velocity Field (3D Surface)</h5>
+                          <p>This plot shows the distribution of the horizontal (U) velocity component across the domain. The height and color represent the speed of the fluid in the X direction, with higher regions indicating faster flow.</p>
+                        </div>
+                        <div className="mb-4">
+                          <h5 className="text-lg font-bold text-blue-300 mb-1">Pressure Field (3D Surface)</h5>
+                          <p>This plot visualizes the pressure at each point in the fluid domain. The color and height indicate the pressure magnitude, helping to identify regions of high and low pressure that drive the flow.</p>
+                        </div>
+                        <div className="mb-4">
+                          <h5 className="text-lg font-bold text-blue-300 mb-1">Velocity Magnitude (3D Surface)</h5>
+                          <p>This graph displays the overall speed of the fluid at each location, regardless of direction. It combines both horizontal and vertical velocity components to show where the fluid is moving fastest.</p>
+                        </div>
+                        <div>
+                          <h5 className="text-lg font-bold text-blue-300 mb-1">Vorticity Field (3D Surface)</h5>
+                          <p>This plot represents the vorticity, or the local spinning motion of the fluid. High vorticity regions indicate strong rotational flow, which is important for understanding turbulence and mixing.</p>
+                        </div>
                     </div>
                 )}
               </div>
