@@ -52,32 +52,43 @@ const FluidViscosityExplainer = () => {
     setLoadingData(true);
     setApiError(null);
 
+    // Validate the values before sending
+    if (isNaN(reynoldsNumber) || isNaN(nuBaseTrue) || isNaN(aTrue) || isNaN(uMaxInlet)) {
+      setApiError('Invalid parameter values detected');
+      setLoadingData(false);
+      return;
+    }
+
+    const requestBody = {
+      parameters: {
+        reynolds_number: Number(reynoldsNumber),
+        nu_base_true: Number(nuBaseTrue),
+        a_true: Number(aTrue),
+        u_max_inlet: Number(uMaxInlet),
+        x_max: Number(xMax),
+        y_max: Number(yMax),
+        x_min: Number(xMin),
+        y_min: Number(yMin),
+        n_grid_x: Number(nGridX),
+        n_grid_y: Number(nGridY),
+        n_time_slices: Number(nTimeSlices),
+        name: name,
+      },
+      model_path: MODEL_PATH,
+      include_boundary: true,
+      include_centerline: true,
+      include_viscosity: true
+    };
+
+    console.log('Sending request with parameters:', requestBody.parameters); // Debug log
+
     try {
       const response = await fetch(`${BACKEND_URL}/inference/single`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          parameters: {
-            reynolds_number: reynoldsNumber,
-            nu_base_true: parseFloat(String(nuBaseTrue)),
-            a_true: parseFloat(String(aTrue)),
-            u_max_inlet: parseFloat(String(uMaxInlet)),
-            x_max: parseFloat(String(xMax)),
-            y_max: parseFloat(String(yMax)),
-            x_min: parseFloat(String(xMin)),
-            y_min: parseFloat(String(yMin)),
-            n_grid_x: parseInt(String(nGridX), 10),
-            n_grid_y: parseInt(String(nGridY), 10),
-            n_time_slices: parseInt(String(nTimeSlices), 10),
-            name: name,
-          },
-          model_path: MODEL_PATH,
-          include_boundary: true,
-          include_centerline: true,
-          include_viscosity: true
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
@@ -576,7 +587,11 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
         min={min}
         max={max}
         step={step}
-        onChange={e => setter(Number(e.target.value))}
+        onChange={(e) => {
+          const newValue = Number(e.target.value);
+          console.log(`Slider ${id} changed to:`, newValue); // Debug log
+          setter(newValue);
+        }}
         className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gray-300 [&::-webkit-slider-thumb]:cursor-pointer"
       />
     </div>
