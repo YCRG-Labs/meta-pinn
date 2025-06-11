@@ -18,7 +18,7 @@ const FluidViscosityExplainer = () => {
 
   // State for parameter inputs (sliders)
   const [reynoldsNumber, setReynoldsNumber] = useState<number>(100);
-  const [nuBaseTrue, setNuBaseTrue] = useState<number>(0.01);
+  const [nuBaseTrue, setNuBaseTrue] = useState<number>();
   const [aTrue, setATrue] = useState<number>(0.05);
   const [uMaxInlet, setUMaxInlet] = useState<number>(1.0);
   const [xMax] = useState<number>(2.0);
