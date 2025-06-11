@@ -695,8 +695,8 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                     <h3 className="text-2xl font-semibold text-blue-300 mb-6">Simulation Parameters</h3>
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
-                      <span className="text-blue-100 font-bold">{reynoldsNumber}</span>
                     </div>
+                    {renderSlider("Reynolds Number", "reynoldsNumber", reynoldsNumber, setReynoldsNumber, 10, 100, 1)}
                     {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
                     {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
                     {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
