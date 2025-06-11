@@ -17,8 +17,7 @@ const FluidViscosityExplainer = () => {
   const MODEL_PATH = "backend/results/trained_model.pth";
 
   // State for parameter inputs (sliders)
-  const [reynoldsNumber, setReynoldsNumber] = useState(100);
-  const [nuBaseTrue, setNuBaseTrue] = useState(0.01);
+  const [nuBaseTrue, setNuBaseTrue] = useState(100);
   const [aTrue, setATrue] = useState(0.05);
   const [uMaxInlet, setUMaxInlet] = useState(1.0);
   const [xMax] = useState(2.0);
@@ -711,7 +710,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
                     </div>
-                    {renderSlider("Reynolds Number", "reynoldsNumber", reynoldsNumber, setReynoldsNumber, 10, 100, 1)}
+                    {renderSlider("Reynolds Number", "reynoldsNumber", nuBaseTrue, setNuBaseTrue, 10, 100, 1)}
                     {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
                     {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
                     {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
