@@ -17,17 +17,18 @@ const FluidViscosityExplainer = () => {
   const MODEL_PATH = "backend/results/trained_model.pth";
 
   // State for parameter inputs (sliders)
-  const [nuBaseTrue, setNuBaseTrue] = useState(100);
-  const [aTrue, setATrue] = useState(0.05);
-  const [uMaxInlet, setUMaxInlet] = useState(1.0);
-  const [xMax] = useState(2.0);
-  const [yMax] = useState(1.0);
-  const [xMin] = useState(0.0);
-  const [yMin] = useState(0.0);
-  const [nGridX] = useState(25);
-  const [nGridY] = useState(25);
-  const [nTimeSlices] = useState(5);
-  const [name] = useState("Frontend Visualization");
+  const [reynoldsNumber, setReynoldsNumber] = useState<number>(100);
+  const [nuBaseTrue, setNuBaseTrue] = useState<number>(0.01);
+  const [aTrue, setATrue] = useState<number>(0.05);
+  const [uMaxInlet, setUMaxInlet] = useState<number>(1.0);
+  const [xMax] = useState<number>(2.0);
+  const [yMax] = useState<number>(1.0);
+  const [xMin] = useState<number>(0.0);
+  const [yMin] = useState<number>(0.0);
+  const [nGridX] = useState<number>(25);
+  const [nGridY] = useState<number>(25);
+  const [nTimeSlices] = useState<number>(5);
+  const [name] = useState<string>("Frontend Visualization");
   
   // Fix hydration by ensuring client-side rendering
   useEffect(() => {
@@ -50,6 +51,21 @@ const FluidViscosityExplainer = () => {
   const fetchPINNData = async () => {
     setLoadingData(true);
     setApiError(null);
+
+    // Log current state values
+    console.log('Current state values:', {
+      reynoldsNumber,
+      nuBaseTrue,
+      aTrue,
+      uMaxInlet,
+      xMax,
+      yMax,
+      xMin,
+      yMin,
+      nGridX,
+      nGridY,
+      nTimeSlices
+    });
 
     // Validate the values before sending
     if (isNaN(reynoldsNumber) || isNaN(nuBaseTrue) || isNaN(aTrue) || isNaN(uMaxInlet)) {
@@ -92,10 +108,12 @@ const FluidViscosityExplainer = () => {
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('API Error Response:', errorText); // Debug log
         throw new Error(`API request failed: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('API Response:', data); // Debug log
       if (data.success) {
         setApiData(data);
       } else {
@@ -588,7 +606,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
         step={step}
         onChange={(e) => {
           const newValue = Number(e.target.value);
-          console.log(`Slider ${id} changed to:`, newValue); // Debug log
+          console.log(`Slider ${id} changed from ${value} to:`, newValue); // Debug log
           setter(newValue);
         }}
         className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gray-300 [&::-webkit-slider-thumb]:cursor-pointer"
@@ -710,7 +728,7 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
                     </div>
-                    {renderSlider("Reynolds Number", "reynoldsNumber", nuBaseTrue, setNuBaseTrue, 10, 100, 1)}
+                    {renderSlider("Reynolds Number", "reynoldsNumber", reynoldsNumber, setReynoldsNumber, 10, 100, 1)}
                     {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
                     {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
                     {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
