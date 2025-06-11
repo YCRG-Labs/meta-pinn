@@ -21,14 +21,14 @@ const FluidViscosityExplainer = () => {
   const [nuBaseTrue, setNuBaseTrue] = useState(0.01);
   const [aTrue, setATrue] = useState(0.05);
   const [uMaxInlet, setUMaxInlet] = useState(1.0);
-  const [xMax, setXMax] = useState(2.0);
-  const [yMax, setYMax] = useState(1.0);
-  const [xMin, setXMin] = useState(0.0);
-  const [yMin, setYMin] = useState(0.0);
-  const [nGridX, setNGridX] = useState(25);
-  const [nGridY, setNGridY] = useState(25);
-  const [nTimeSlices, setNTimeSlices] = useState(5);
-  const [name, setName] = useState("Frontend Visualization");
+  const [xMax] = useState(2.0);
+  const [yMax] = useState(1.0);
+  const [xMin] = useState(0.0);
+  const [yMin] = useState(0.0);
+  const [nGridX] = useState(25);
+  const [nGridY] = useState(25);
+  const [nTimeSlices] = useState(5);
+  const [name] = useState("Frontend Visualization");
   
   // Fix hydration by ensuring client-side rendering
   useEffect(() => {
@@ -697,7 +697,6 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                       <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
                       <span className="text-blue-100 font-bold">{reynoldsNumber}</span>
                     </div>
-                    {renderSlider("Reynolds Number", "nGridX", reynoldsNumber, setReynoldsNumber, 10, 100, 1)}
                     {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
                     {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
                     {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
