@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-FastAPI Application for PINN Model Inference
+FastAPI Application for PINN Model Inference - Predefined Examples
 
-This FastAPI application provides REST endpoints to run PINN model inference
-and return data suitable for frontend plotting.
+This FastAPI application provides REST endpoints to serve pre-computed PINN model inference
+results from 3 predefined scenarios for frontend 3D visualization.
+
+The app generates 3 example scenarios on startup and serves the static data.
 
 Usage:
     uvicorn app:app --reload --host 0.0.0.0 --port 8000
@@ -11,6 +13,7 @@ Usage:
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Union
 import os
@@ -33,18 +36,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from interactive import (
     create_inference_config,
     load_trained_model,
-    infer_3d_flow_field,
-    infer_boundary_analysis,
-    infer_centerline_analysis,
-    infer_viscosity_profile,
-    export_inference_summary,
     run_inference_session
 )
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="PINN Inference API",
-    description="API for running Physics-Informed Neural Network inference and generating plotting data",
+    title="PINN Inference API - Predefined Examples",
+    description="API for serving pre-computed Physics-Informed Neural Network inference results",
     version="1.0.0"
 )
 
@@ -59,159 +57,331 @@ app.add_middleware(
 
 # Default model path
 DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "trained_model.pth")
-print(f"Looking for model at: {DEFAULT_MODEL_PATH}")  # Debug print
 
-def resolve_model_path(model_path: str) -> str:
-    """Resolve model path to absolute path, handling both relative and absolute paths"""
-    if os.path.isabs(model_path):
-        return model_path
-    # If path starts with 'backend/', remove it since we're already in the backend directory
-    if model_path.startswith('backend/'):
-        model_path = model_path[8:]  # Remove 'backend/' prefix
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), model_path)
+# Data directory structure
+EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "examples")
 
-# Pydantic models for API
-class InferenceParameters(BaseModel):
-    """Parameters for inference configuration"""
-    reynolds_number: float = Field(description="Reynolds number for the flow")
-    nu_base_true: float = Field(description="Base viscosity value")
-    a_true: float = Field(description="Reference viscosity parameter for comparison")
-    u_max_inlet: float = Field(description="Maximum inlet velocity")
-    x_max: float = Field(description="Domain width")
-    y_max: float = Field(description="Domain height")
-    x_min: float = Field(description="Domain x minimum")
-    y_min: float = Field(description="Domain y minimum")
-    n_grid_x: int = Field(description="Grid points in X direction")
-    n_grid_y: int = Field(description="Grid points in Y direction")
-    n_time_slices: int = Field(description="Number of time slices for unsteady flow")
-    name: str = Field(description="Inference session name")
+# Define the 3 predefined scenarios
+PREDEFINED_SCENARIOS = [
+    {
+        "id": "scenario_1_low_reynolds",
+        "name": "Low Reynolds Number Flow",
+        "description": "Low Reynolds number (Re=50) with fine viscosity variation",
+        "parameters": {
+            "reynolds_number": 50.0,
+            "nu_base_true": 0.02,
+            "a_true": 0.03,
+            "u_max_inlet": 0.8,
+            "x_max": 2.0,
+            "y_max": 1.0,
+            "x_min": 0.0,
+            "y_min": 0.0,
+            "n_grid_x": 120,
+            "n_grid_y": 60,
+            "n_time_slices": 1,
+            "name": "Low_Re_Fine_Viscosity"
+        }
+    },
+    {
+        "id": "scenario_2_medium_reynolds",
+        "name": "Medium Reynolds Number Flow",
+        "description": "Medium Reynolds number (Re=100) with moderate viscosity variation",
+        "parameters": {
+            "reynolds_number": 100.0,
+            "nu_base_true": 0.01,
+            "a_true": 0.05,
+            "u_max_inlet": 1.0,
+            "x_max": 2.5,
+            "y_max": 1.0,
+            "x_min": 0.0,
+            "y_min": 0.0,
+            "n_grid_x": 150,
+            "n_grid_y": 75,
+            "n_time_slices": 1,
+            "name": "Medium_Re_Moderate_Viscosity"
+        }
+    },
+    {
+        "id": "scenario_3_high_reynolds",
+        "name": "High Reynolds Number Flow",
+        "description": "High Reynolds number (Re=200) with strong viscosity variation",
+        "parameters": {
+            "reynolds_number": 200.0,
+            "nu_base_true": 0.005,
+            "a_true": 0.08,
+            "u_max_inlet": 1.5,
+            "x_max": 3.0,
+            "y_max": 1.0,
+            "x_min": 0.0,
+            "y_min": 0.0,
+            "n_grid_x": 180,
+            "n_grid_y": 90,
+            "n_time_slices": 1,
+            "name": "High_Re_Strong_Viscosity"
+        }
+    }
+]
 
-class InferenceRequest(BaseModel):
-    """Request model for inference"""
-    parameters: InferenceParameters
-    model_path: Optional[str] = Field(default=DEFAULT_MODEL_PATH, description="Path to trained model")
-    include_boundary: Optional[bool] = Field(default=True, description="Include boundary analysis")
-    include_centerline: Optional[bool] = Field(default=True, description="Include centerline analysis")
-    include_viscosity: Optional[bool] = Field(default=True, description="Include viscosity profile")
+# Pydantic models for API responses
+class ScenarioMetadata(BaseModel):
+    """Metadata for a scenario"""
+    id: str = Field(description="Scenario identifier")
+    name: str = Field(description="Scenario display name")
+    description: str = Field(description="Scenario description")
+    parameters: Dict[str, Any] = Field(description="Scenario parameters")
+    learned_viscosity_param: Optional[float] = Field(description="Learned viscosity parameter")
+    processing_time: Optional[float] = Field(description="Processing time in seconds")
+    total_points: Optional[int] = Field(description="Total number of inference points")
+    grid_shape: Optional[List[int]] = Field(description="Grid shape [nx, ny]")
+    files_available: List[str] = Field(description="Available data files")
+    generated_at: Optional[str] = Field(description="Generation timestamp")
 
-class MultiInferenceRequest(BaseModel):
-    """Request model for multiple inference scenarios"""
-    scenarios: List[InferenceParameters]
-    model_path: Optional[str] = Field(default=DEFAULT_MODEL_PATH, description="Path to trained model")
-    include_boundary: Optional[bool] = Field(default=True, description="Include boundary analysis")
-    include_centerline: Optional[bool] = Field(default=True, description="Include centerline analysis")
-    include_viscosity: Optional[bool] = Field(default=True, description="Include viscosity profile")
-
-class FlowFieldData(BaseModel):
-    """Flow field data for plotting"""
-    x: List[float] = Field(description="X coordinates")
-    y: List[float] = Field(description="Y coordinates")
-    u_velocity: List[float] = Field(description="U velocity component")
-    v_velocity: List[float] = Field(description="V velocity component")
-    pressure: List[float] = Field(description="Pressure field")
-    velocity_magnitude: List[float] = Field(description="Velocity magnitude")
-    viscosity: List[float] = Field(description="Viscosity field")
-    vorticity: List[float] = Field(description="Vorticity field")
-    grid_shape: List[int] = Field(description="Grid shape [nx, ny]")
-    learned_viscosity_param: float = Field(description="Learned viscosity parameter")
-
-class BoundaryData(BaseModel):
-    """Boundary analysis data"""
-    x: List[float] = Field(description="X coordinates")
-    y: List[float] = Field(description="Y coordinates")
-    u_velocity: List[float] = Field(description="U velocity")
-    v_velocity: List[float] = Field(description="V velocity")
-    pressure: List[float] = Field(description="Pressure")
-    boundary_type: List[str] = Field(description="Boundary type labels")
-
-class CenterlineData(BaseModel):
-    """Centerline analysis data"""
-    x: List[float] = Field(description="X coordinates along centerline")
-    u_velocity: List[float] = Field(description="U velocity along centerline")
-    pressure: List[float] = Field(description="Pressure along centerline")
-    velocity_magnitude: List[float] = Field(description="Velocity magnitude")
-    viscosity: List[float] = Field(description="Viscosity along centerline")
-
-class ViscosityProfileData(BaseModel):
-    """Viscosity profile data"""
-    y: List[float] = Field(description="Y coordinates")
-    viscosity_learned: List[float] = Field(description="Learned viscosity profile")
-    viscosity_reference: List[Optional[float]] = Field(description="Reference viscosity profile")
-    absolute_error: List[Optional[float]] = Field(description="Absolute error")
-    relative_error_percent: List[Optional[float]] = Field(description="Relative error percentage")
-
-class InferenceResponse(BaseModel):
-    """Response model for inference results"""
-    success: bool = Field(description="Whether inference was successful")
-    session_id: str = Field(description="Unique session identifier")
-    learned_viscosity_param: float = Field(default=0.0, description="Learned viscosity parameter")
-    total_points: int = Field(default=0, description="Total number of inference points")
-    processing_time: float = Field(default=0.0, description="Processing time in seconds")
-    flow_field: Optional[FlowFieldData] = Field(default=None, description="Flow field data")
-    boundary_data: Optional[BoundaryData] = Field(default=None, description="Boundary analysis data")
-    centerline_data: Optional[CenterlineData] = Field(default=None, description="Centerline analysis data")
-    viscosity_profile: Optional[ViscosityProfileData] = Field(default=None, description="Viscosity profile data")
-    model_info: Dict[str, Any] = Field(default_factory=dict, description="Model information")
-    error_message: Optional[str] = Field(default=None, description="Error message if failed")
-
-class MultiInferenceResponse(BaseModel):
-    """Response model for multiple inference scenarios"""
-    success: bool = Field(description="Whether all inferences were successful")
-    session_id: str = Field(description="Unique session identifier")
+class ScenariosListResponse(BaseModel):
+    """Response for scenarios list"""
+    success: bool = Field(description="Whether request was successful")
     total_scenarios: int = Field(description="Total number of scenarios")
-    scenarios: List[InferenceResponse] = Field(description="Individual scenario results")
-    summary: Dict[str, Any] = Field(description="Summary statistics")
+    scenarios: List[ScenarioMetadata] = Field(description="List of scenarios")
+
+class GenerationStatusResponse(BaseModel):
+    """Response for generation status"""
+    success: bool = Field(description="Whether generation was successful")
+    status: str = Field(description="Generation status")
+    scenarios_completed: int = Field(description="Number of scenarios completed")
+    total_scenarios: int = Field(description="Total number of scenarios")
+    current_scenario: Optional[str] = Field(description="Currently processing scenario")
     error_message: Optional[str] = Field(description="Error message if failed")
 
-class ModelInfoResponse(BaseModel):
-    """Response model for model information"""
-    success: bool = Field(description="Whether model loading was successful")
-    model_path: str = Field(description="Path to model file")
-    learned_viscosity_param: float = Field(description="Learned viscosity parameter")
-    model_architecture: List[int] = Field(description="Neural network architecture")
-    uses_fourier_features: bool = Field(description="Whether model uses Fourier features")
-    uses_adaptive_weights: bool = Field(description="Whether model uses adaptive weights")
-    model_exists: bool = Field(description="Whether model file exists")
-    error_message: Optional[str] = Field(description="Error message if failed")
+class DataFileResponse(BaseModel):
+    """Response for data file content"""
+    success: bool = Field(description="Whether request was successful")
+    filename: str = Field(description="Filename")
+    data_type: str = Field(description="Type of data")
+    shape: Optional[List[int]] = Field(description="Data shape")
+    columns: List[str] = Field(description="Column names")
+    data: List[Dict[str, Any]] = Field(description="Data records")
+    metadata: Optional[Dict[str, Any]] = Field(description="Additional metadata")
 
-# Global storage for temporary inference data
-inference_cache = {}
+# Global status tracking
+generation_status = {
+    "is_generating": False,
+    "completed_scenarios": 0,
+    "current_scenario": None,
+    "start_time": None,
+    "error": None
+}
 
-def process_csv_to_lists(df: pd.DataFrame) -> Dict[str, List]:
-    """Convert DataFrame to dictionary of lists, handling NaN values"""
-    result = {}
-    for column in df.columns:
-        if df[column].dtype == 'object':
-            result[column] = df[column].fillna('').tolist()
-        else:
-            # Replace NaN with None for JSON serialization
-            result[column] = df[column].where(pd.notna(df[column]), None).tolist()
-    return result
+def get_scenario_directory(scenario_id: str) -> str:
+    """Get the directory path for a scenario"""
+    return os.path.join(EXAMPLES_DIR, scenario_id)
 
-def create_temp_directory() -> str:
-    """Create a temporary directory for inference results"""
-    temp_dir = tempfile.mkdtemp(prefix="pinn_inference_")
-    return temp_dir
+def get_scenario_file_path(scenario_id: str, filename: str) -> str:
+    """Get the full path for a scenario file"""
+    return os.path.join(get_scenario_directory(scenario_id), filename)
 
-def cleanup_temp_directory(temp_dir: str):
-    """Clean up temporary directory"""
+def scenario_exists(scenario_id: str) -> bool:
+    """Check if a scenario directory and files exist"""
+    scenario_dir = get_scenario_directory(scenario_id)
+    if not os.path.exists(scenario_dir):
+        return False
+    
+    # Check for required files
+    required_files = [
+        "inferred_flow_3d_complete.csv",
+        "inferred_viscosity_profile.csv",
+        "inference_summary.json",
+        "metadata.json"
+    ]
+    
+    for filename in required_files:
+        if not os.path.exists(os.path.join(scenario_dir, filename)):
+            return False
+    
+    return True
+
+def get_available_files(scenario_id: str) -> List[str]:
+    """Get list of available files for a scenario"""
+    scenario_dir = get_scenario_directory(scenario_id)
+    if not os.path.exists(scenario_dir):
+        return []
+    
+    files = []
+    for filename in os.listdir(scenario_dir):
+        if filename.endswith(('.csv', '.json')):
+            files.append(filename)
+    
+    return sorted(files)
+
+def load_scenario_metadata(scenario_id: str) -> Optional[Dict[str, Any]]:
+    """Load metadata for a scenario"""
+    metadata_path = get_scenario_file_path(scenario_id, "metadata.json")
+    if not os.path.exists(metadata_path):
+        return None
+    
     try:
-        shutil.rmtree(temp_dir)
+        with open(metadata_path, 'r') as f:
+            return json.load(f)
     except Exception as e:
-        print(f"Warning: Could not clean up temporary directory {temp_dir}: {e}")
+        print(f"Error loading metadata for {scenario_id}: {e}")
+        return None
+
+def save_scenario_metadata(scenario_id: str, metadata: Dict[str, Any]):
+    """Save metadata for a scenario"""
+    scenario_dir = get_scenario_directory(scenario_id)
+    os.makedirs(scenario_dir, exist_ok=True)
+    
+    metadata_path = get_scenario_file_path(scenario_id, "metadata.json")
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+async def generate_scenario_data(scenario_config: Dict[str, Any], model_path: str) -> Dict[str, Any]:
+    """Generate data for a single scenario"""
+    scenario_id = scenario_config["id"]
+    scenario_name = scenario_config["name"]
+    parameters = scenario_config["parameters"]
+    
+    print(f"Generating data for scenario: {scenario_name}")
+    
+    try:
+        # Create inference configuration
+        inference_config = create_inference_config(**parameters)
+        
+        # Load trained model
+        model, inference_config = load_trained_model(model_path, inference_config)
+        
+        # Set output directory to scenario directory
+        scenario_dir = get_scenario_directory(scenario_id)
+        os.makedirs(scenario_dir, exist_ok=True)
+        inference_config.OUTPUT_DIR = scenario_dir
+        
+        # Run inference session
+        import time
+        start_time = time.time()
+        
+        # Run comprehensive inference
+        results = run_inference_session(model, inference_config, model_path, scenario_id)
+        
+        processing_time = time.time() - start_time
+        
+        # Create scenario metadata
+        metadata = {
+            "scenario_id": scenario_id,
+            "scenario_name": scenario_name,
+            "description": scenario_config["description"],
+            "parameters": parameters,
+            "learned_viscosity_param": model.get_inferred_viscosity_param(),
+            "processing_time": processing_time,
+            "total_points": results['flow_results']['total_points'],
+            "grid_shape": results['flow_results']['grid_size'],
+            "files_available": get_available_files(scenario_id),
+            "generated_at": datetime.now().isoformat(),
+            "model_info": {
+                "architecture": inference_config.PINN_LAYERS,
+                "uses_fourier_features": inference_config.USE_FOURIER_FEATURES,
+                "uses_adaptive_weights": inference_config.USE_ADAPTIVE_WEIGHTS,
+                "reynolds_number": inference_config.REYNOLDS_NUMBER
+            }
+        }
+        
+        # Save metadata
+        save_scenario_metadata(scenario_id, metadata)
+        
+        print(f"Completed scenario: {scenario_name} in {processing_time:.2f}s")
+        
+        return metadata
+        
+    except Exception as e:
+        print(f"Error generating scenario {scenario_name}: {str(e)}")
+        raise e
+
+async def generate_all_scenarios():
+    """Generate data for all predefined scenarios"""
+    global generation_status
+    
+    if generation_status["is_generating"]:
+        return
+    
+    generation_status["is_generating"] = True
+    generation_status["completed_scenarios"] = 0
+    generation_status["current_scenario"] = None
+    generation_status["start_time"] = datetime.now()
+    generation_status["error"] = None
+    
+    try:
+        # Check if model exists
+        if not os.path.exists(DEFAULT_MODEL_PATH):
+            raise FileNotFoundError(f"Model file not found: {DEFAULT_MODEL_PATH}")
+        
+        print(f"Starting generation of {len(PREDEFINED_SCENARIOS)} scenarios...")
+        
+        for i, scenario_config in enumerate(PREDEFINED_SCENARIOS):
+            scenario_id = scenario_config["id"]
+            generation_status["current_scenario"] = scenario_config["name"]
+            
+            # Skip if scenario already exists
+            if scenario_exists(scenario_id):
+                print(f"Scenario {scenario_id} already exists, skipping...")
+                generation_status["completed_scenarios"] += 1
+                continue
+            
+            # Generate scenario data
+            await generate_scenario_data(scenario_config, DEFAULT_MODEL_PATH)
+            generation_status["completed_scenarios"] += 1
+        
+        print("All scenarios generated successfully!")
+        
+    except Exception as e:
+        generation_status["error"] = str(e)
+        print(f"Error during generation: {e}")
+    
+    finally:
+        generation_status["is_generating"] = False
+        generation_status["current_scenario"] = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Generate scenarios on startup if they don't exist"""
+    print("PINN Inference API started")
+    
+    # Check if any scenarios are missing
+    missing_scenarios = []
+    for scenario_config in PREDEFINED_SCENARIOS:
+        if not scenario_exists(scenario_config["id"]):
+            missing_scenarios.append(scenario_config["id"])
+    
+    if missing_scenarios:
+        print(f"Missing scenarios: {missing_scenarios}")
+        print("Generating scenarios in background...")
+        # Generate scenarios in background
+        asyncio.create_task(generate_all_scenarios())
+    else:
+        print("All scenarios already exist")
 
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "PINN Inference API",
+        "message": "PINN Inference API - Predefined Examples",
         "version": "1.0.0",
+        "total_scenarios": len(PREDEFINED_SCENARIOS),
         "endpoints": {
-            "/model/info": "Get model information",
-            "/inference/single": "Run single inference",
-            "/inference/multiple": "Run multiple inference scenarios",
-            "/inference/flow-field": "Get flow field data only",
+            "/scenarios": "List all available scenarios",
+            "/scenarios/{scenario_id}": "Get specific scenario metadata",
+            "/scenarios/{scenario_id}/data/{filename}": "Get scenario data file",
+            "/scenarios/{scenario_id}/files": "List files for scenario",
+            "/generate": "Trigger scenario generation",
+            "/generation-status": "Check generation status",
             "/health": "Health check"
+        },
+        "data_structure": {
+            "scenarios_directory": EXAMPLES_DIR,
+            "scenario_files": [
+                "inferred_flow_3d_complete.csv - Main flow field data",
+                "inferred_boundary_analysis.csv - Boundary condition analysis",
+                "inferred_centerline_analysis.csv - Centerline flow data",
+                "inferred_viscosity_profile.csv - Viscosity inference results",
+                "inference_summary.json - Summary of inference results",
+                "metadata.json - Scenario metadata and parameters"
+            ]
         }
     }
 
@@ -220,431 +390,232 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-@app.get("/model/info", response_model=ModelInfoResponse)
-async def get_model_info(model_path: str = DEFAULT_MODEL_PATH):
-    """Get information about the trained model"""
-    try:
-        # Resolve model path
-        resolved_path = resolve_model_path(model_path)
-        print(f"Resolved model path: {resolved_path}")  # Debug print
-        
-        if not os.path.exists(resolved_path):
-            return ModelInfoResponse(
-                success=False,
-                model_path=resolved_path,
-                learned_viscosity_param=0.0,
-                model_architecture=[],
-                uses_fourier_features=False,
-                uses_adaptive_weights=False,
-                model_exists=False,
-                error_message=f"Model file not found: {resolved_path}"
-            )
-            
-        # Load checkpoint to inspect saved configuration
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        checkpoint = torch.load(resolved_path, map_location=device)
-        
-        # Extract model information
-        model_info = {
-            'model_path': resolved_path,
-            'model_exists': True,
-            'learned_viscosity_param': 0.0,  # Will be updated if available
-            'model_architecture': [],
-            'uses_fourier_features': False,
-            'uses_adaptive_weights': False
-        }
-        
-        if 'config' in checkpoint:
-            saved_config = checkpoint['config']
-            if 'layers' in saved_config:
-                model_info['model_architecture'] = saved_config['layers']
-            if 'use_fourier_features' in saved_config:
-                model_info['uses_fourier_features'] = saved_config['use_fourier_features']
-            if 'use_adaptive_weights' in saved_config:
-                model_info['uses_adaptive_weights'] = saved_config['use_adaptive_weights']
-            if 'nu_base' in saved_config:
-                model_info['learned_viscosity_param'] = saved_config['nu_base']
-        
-        return ModelInfoResponse(
-            success=True,
-            **model_info
-        )
-        
-    except Exception as e:
-        return ModelInfoResponse(
-            success=False,
-            model_path=resolved_path,
-            learned_viscosity_param=0.0,
-            model_architecture=[],
-            uses_fourier_features=False,
-            uses_adaptive_weights=False,
-            model_exists=False,
-            error_message=str(e)
-        )
-
-@app.post("/inference/single", response_model=InferenceResponse)
-async def run_single_inference(request: InferenceRequest):
-    """Run single inference with specified parameters"""
-    session_id = str(uuid.uuid4())
-    temp_dir = None
+@app.get("/scenarios", response_model=ScenariosListResponse)
+async def list_scenarios():
+    """List all available scenarios with metadata"""
+    scenarios = []
     
-    try:
-        # Create temporary directory
-        temp_dir = create_temp_directory()
+    for scenario_config in PREDEFINED_SCENARIOS:
+        scenario_id = scenario_config["id"]
         
-        # Resolve model path
-        model_path = resolve_model_path(request.model_path)
-        print(f"Resolved model path: {model_path}")  # Debug print
+        # Load metadata if available
+        metadata = load_scenario_metadata(scenario_id)
         
-        if not os.path.exists(model_path):
-            raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
-            
-        # Create inference configuration
-        inference_config = create_inference_config(
-            reynolds_number=request.parameters.reynolds_number,
-            nu_base_true=request.parameters.nu_base_true,
-            a_true=request.parameters.a_true,
-            u_max_inlet=request.parameters.u_max_inlet,
-            x_max=request.parameters.x_max,
-            y_max=request.parameters.y_max,
-            x_min=request.parameters.x_min,
-            y_min=request.parameters.y_min,
-            n_grid_x=request.parameters.n_grid_x,
-            n_grid_y=request.parameters.n_grid_y,
-            n_time_slices=request.parameters.n_time_slices,
-            name=request.parameters.name
-        )
-        
-        # Load trained model
-        model, inference_config = load_trained_model(model_path, inference_config)
-        
-        # Set output directory to temp directory
-        inference_config.OUTPUT_DIR = temp_dir
-        
-        # Run flow field inference
-        import time
-        start_time = time.time()
-        
-        flow_results = infer_3d_flow_field(model, inference_config, temp_dir)
-        
-        # Process flow field data
-        flow_df = pd.read_csv(os.path.join(temp_dir, 'inferred_flow_3d_complete.csv'))
-        flow_data = process_csv_to_lists(flow_df)
-        
-        flow_field = FlowFieldData(
-            x=flow_data['x'],
-            y=flow_data['y'],
-            u_velocity=flow_data['u_velocity'],
-            v_velocity=flow_data['v_velocity'],
-            pressure=flow_data['pressure'],
-            velocity_magnitude=flow_data['velocity_magnitude'],
-            viscosity=flow_data['viscosity'],
-            vorticity=flow_data['vorticity'],
-            grid_shape=flow_results['grid_size'],
-            learned_viscosity_param=model.get_inferred_viscosity_param()
-        )
-        
-        # Optional analyses
-        boundary_data = None
-        centerline_data = None
-        viscosity_profile = None
-        
-        if request.include_boundary:
-            boundary_df = infer_boundary_analysis(model, inference_config, temp_dir)
-            boundary_dict = process_csv_to_lists(boundary_df)
-            boundary_data = BoundaryData(
-                x=boundary_dict['x'],
-                y=boundary_dict['y'],
-                u_velocity=boundary_dict['u_velocity'],
-                v_velocity=boundary_dict['v_velocity'],
-                pressure=boundary_dict['pressure'],
-                boundary_type=boundary_dict['boundary_type']
+        if metadata:
+            scenario_metadata = ScenarioMetadata(
+                id=scenario_id,
+                name=metadata["scenario_name"],
+                description=metadata["description"],
+                parameters=metadata["parameters"],
+                learned_viscosity_param=metadata.get("learned_viscosity_param"),
+                processing_time=metadata.get("processing_time"),
+                total_points=metadata.get("total_points"),
+                grid_shape=metadata.get("grid_shape"),
+                files_available=metadata.get("files_available", []),
+                generated_at=metadata.get("generated_at")
             )
-        
-        if request.include_centerline:
-            centerline_df = infer_centerline_analysis(model, inference_config, temp_dir)
-            centerline_dict = process_csv_to_lists(centerline_df)
-            centerline_data = CenterlineData(
-                x=centerline_dict['x'],
-                u_velocity=centerline_dict['u_velocity'],
-                pressure=centerline_dict['pressure'],
-                velocity_magnitude=centerline_dict['velocity_magnitude'],
-                viscosity=centerline_dict['viscosity']
-            )
-        
-        if request.include_viscosity:
-            viscosity_df = infer_viscosity_profile(model, inference_config, temp_dir)
-            viscosity_dict = process_csv_to_lists(viscosity_df)
-            viscosity_profile = ViscosityProfileData(
-                y=viscosity_dict['y'],
-                viscosity_learned=viscosity_dict['viscosity_learned'],
-                viscosity_reference=viscosity_dict['viscosity_reference'],
-                absolute_error=viscosity_dict['absolute_error'],
-                relative_error_percent=viscosity_dict['relative_error_percent']
-            )
-        
-        processing_time = time.time() - start_time
-        
-        # Store results in cache for potential retrieval
-        inference_cache[session_id] = {
-            'temp_dir': temp_dir,
-            'timestamp': datetime.now(),
-            'results': flow_results
-        }
-        
-        return InferenceResponse(
-            success=True,
-            session_id=session_id,
-            learned_viscosity_param=model.get_inferred_viscosity_param(),
-            total_points=flow_results['total_points'],
-            processing_time=processing_time,
-            flow_field=flow_field,
-            boundary_data=boundary_data,
-            centerline_data=centerline_data,
-            viscosity_profile=viscosity_profile,
-            model_info={
-                'architecture': inference_config.PINN_LAYERS,
-                'uses_fourier_features': inference_config.USE_FOURIER_FEATURES,
-                'uses_adaptive_weights': inference_config.USE_ADAPTIVE_WEIGHTS,
-                'reynolds_number': inference_config.REYNOLDS_NUMBER,
-                'grid_resolution': f"{inference_config.N_GRID_X}x{inference_config.N_GRID_Y}"
-            }
-        )
-        
-    except Exception as e:
-        # Clean up on error
-        if temp_dir:
-            cleanup_temp_directory(temp_dir)
-        
-        return InferenceResponse(
-            success=False,
-            session_id=session_id,
-            learned_viscosity_param=0.0,
-            total_points=0,
-            processing_time=0.0,
-            model_info={},
-            error_message=str(e)
-        )
-
-@app.post("/inference/multiple", response_model=MultiInferenceResponse)
-async def run_multiple_inference(request: MultiInferenceRequest):
-    """Run multiple inference scenarios"""
-    session_id = str(uuid.uuid4())
-    
-    try:
-        # Check if model exists
-        if not os.path.exists(request.model_path):
-            raise HTTPException(status_code=404, detail=f"Model file not found: {request.model_path}")
-        
-        scenarios_results = []
-        total_processing_time = 0.0
-        total_points = 0
-        
-        for i, scenario_params in enumerate(request.scenarios):
-            # Create individual inference request
-            individual_request = InferenceRequest(
-                parameters=scenario_params,
-                model_path=request.model_path,
-                include_boundary=request.include_boundary,
-                include_centerline=request.include_centerline,
-                include_viscosity=request.include_viscosity
-            )
-            
-            # Run individual inference
-            scenario_result = await run_single_inference(individual_request)
-            scenarios_results.append(scenario_result)
-            
-            if scenario_result.success:
-                total_processing_time += scenario_result.processing_time
-                total_points += scenario_result.total_points
-        
-        # Calculate summary statistics
-        successful_scenarios = [r for r in scenarios_results if r.success]
-        failed_scenarios = [r for r in scenarios_results if not r.success]
-        
-        if successful_scenarios:
-            avg_viscosity_param = np.mean([r.learned_viscosity_param for r in successful_scenarios])
-            std_viscosity_param = np.std([r.learned_viscosity_param for r in successful_scenarios])
         else:
-            avg_viscosity_param = 0.0
-            std_viscosity_param = 0.0
+            # Return basic info from predefined scenarios
+            scenario_metadata = ScenarioMetadata(
+                id=scenario_id,
+                name=scenario_config["name"],
+                description=scenario_config["description"],
+                parameters=scenario_config["parameters"],
+                files_available=get_available_files(scenario_id)
+            )
         
-        summary = {
-            'total_scenarios': len(request.scenarios),
-            'successful_scenarios': len(successful_scenarios),
-            'failed_scenarios': len(failed_scenarios),
-            'total_processing_time': total_processing_time,
-            'total_points': total_points,
-            'average_viscosity_param': float(avg_viscosity_param),
-            'std_viscosity_param': float(std_viscosity_param),
-            'viscosity_param_range': [
-                float(min(r.learned_viscosity_param for r in successful_scenarios)) if successful_scenarios else 0.0,
-                float(max(r.learned_viscosity_param for r in successful_scenarios)) if successful_scenarios else 0.0
-            ]
-        }
-        
-        return MultiInferenceResponse(
-            success=len(successful_scenarios) > 0,
-            session_id=session_id,
-            total_scenarios=len(request.scenarios),
-            scenarios=scenarios_results,
-            summary=summary,
-            error_message=f"{len(failed_scenarios)} scenarios failed" if failed_scenarios else None
-        )
-        
-    except Exception as e:
-        return MultiInferenceResponse(
-            success=False,
-            session_id=session_id,
-            total_scenarios=len(request.scenarios),
-            scenarios=[],
-            summary={},
-            error_message=str(e)
-        )
-
-@app.post("/inference/flow-field")
-async def get_flow_field_only(request: InferenceRequest):
-    """Get only flow field data for lightweight plotting"""
-    temp_dir = None
+        scenarios.append(scenario_metadata)
     
-    try:
-        # Create temporary directory
-        temp_dir = create_temp_directory()
-        
-        # Check if model exists
-        if not os.path.exists(request.model_path):
-            raise HTTPException(status_code=404, detail=f"Model file not found: {request.model_path}")
-        
-        # Create inference configuration
-        inference_config = create_inference_config(
-            reynolds_number=request.parameters.reynolds_number,
-            nu_base_true=request.parameters.nu_base_true,
-            a_true=request.parameters.a_true,
-            u_max_inlet=request.parameters.u_max_inlet,
-            x_max=request.parameters.x_max,
-            y_max=request.parameters.y_max,
-            x_min=request.parameters.x_min,
-            y_min=request.parameters.y_min,
-            n_grid_x=request.parameters.n_grid_x,
-            n_grid_y=request.parameters.n_grid_y,
-            name=request.parameters.name
-        )
-        
-        # Load trained model
-        model, inference_config = load_trained_model(request.model_path, inference_config)
-        
-        # Set output directory to temp directory
-        inference_config.OUTPUT_DIR = temp_dir
-        
-        # Run only flow field inference
-        flow_results = infer_3d_flow_field(model, inference_config, temp_dir)
-        
-        # Read and return flow field data
-        flow_df = pd.read_csv(os.path.join(temp_dir, 'inferred_flow_3d_complete.csv'))
-        
-        # Return raw data for frontend
+    return ScenariosListResponse(
+        success=True,
+        total_scenarios=len(scenarios),
+        scenarios=scenarios
+    )
+
+@app.get("/scenarios/{scenario_id}")
+async def get_scenario_metadata(scenario_id: str):
+    """Get metadata for a specific scenario"""
+    # Validate scenario ID
+    valid_ids = [s["id"] for s in PREDEFINED_SCENARIOS]
+    if scenario_id not in valid_ids:
+        raise HTTPException(status_code=404, detail=f"Scenario not found: {scenario_id}")
+    
+    metadata = load_scenario_metadata(scenario_id)
+    
+    if not metadata:
+        # Return basic info if metadata not available
+        scenario_config = next(s for s in PREDEFINED_SCENARIOS if s["id"] == scenario_id)
         return {
             "success": True,
-            "data": flow_df.to_dict('records'),
-            "metadata": {
-                "grid_shape": flow_results['grid_size'],
-                "total_points": flow_results['total_points'],
-                "learned_viscosity_param": model.get_inferred_viscosity_param()
-            }
+            "scenario_id": scenario_id,
+            "name": scenario_config["name"],
+            "description": scenario_config["description"],
+            "parameters": scenario_config["parameters"],
+            "files_available": get_available_files(scenario_id),
+            "generated": scenario_exists(scenario_id)
         }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
     
-    finally:
-        if temp_dir:
-            cleanup_temp_directory(temp_dir)
-
-@app.get("/inference/{session_id}/download/{file_type}")
-async def download_inference_file(session_id: str, file_type: str):
-    """Download specific inference result files"""
-    if session_id not in inference_cache:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    cache_entry = inference_cache[session_id]
-    temp_dir = cache_entry['temp_dir']
-    
-    file_map = {
-        'flow_field': 'inferred_flow_3d_complete.csv',
-        'boundary': 'inferred_boundary_analysis.csv',
-        'centerline': 'inferred_centerline_analysis.csv',
-        'viscosity': 'inferred_viscosity_profile.csv',
-        'summary': 'inference_summary.json'
+    return {
+        "success": True,
+        **metadata
     }
+
+@app.get("/scenarios/{scenario_id}/files")
+async def list_scenario_files(scenario_id: str):
+    """List all files available for a scenario"""
+    # Validate scenario ID
+    valid_ids = [s["id"] for s in PREDEFINED_SCENARIOS]
+    if scenario_id not in valid_ids:
+        raise HTTPException(status_code=404, detail=f"Scenario not found: {scenario_id}")
     
-    if file_type not in file_map:
-        raise HTTPException(status_code=400, detail=f"Invalid file type: {file_type}")
+    files = get_available_files(scenario_id)
     
-    file_path = os.path.join(temp_dir, file_map[file_type])
+    return {
+        "success": True,
+        "scenario_id": scenario_id,
+        "files": files,
+        "total_files": len(files)
+    }
+
+@app.get("/scenarios/{scenario_id}/data/{filename}")
+async def get_scenario_data(scenario_id: str, filename: str):
+    """Get data file content for a scenario"""
+    # Validate scenario ID
+    valid_ids = [s["id"] for s in PREDEFINED_SCENARIOS]
+    if scenario_id not in valid_ids:
+        raise HTTPException(status_code=404, detail=f"Scenario not found: {scenario_id}")
+    
+    file_path = get_scenario_file_path(scenario_id, filename)
     
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {file_type}")
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
     
-    # Read and return file content
     try:
-        if file_type == 'summary':
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        else:
+        if filename.endswith('.csv'):
+            # Return CSV data as JSON
             df = pd.read_csv(file_path)
+            
+            return DataFileResponse(
+                success=True,
+                filename=filename,
+                data_type="csv",
+                shape=list(df.shape),
+                columns=df.columns.tolist(),
+                data=df.to_dict('records'),
+                metadata={
+                    "total_rows": len(df),
+                    "total_columns": len(df.columns),
+                    "memory_usage_mb": df.memory_usage(deep=True).sum() / 1024 / 1024
+                }
+            )
+            
+        elif filename.endswith('.json'):
+            # Return JSON data
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+            
             return {
-                "filename": file_map[file_type],
-                "data": df.to_dict('records'),
-                "shape": list(df.shape)
+                "success": True,
+                "filename": filename,
+                "data_type": "json",
+                "data": data
             }
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename}")
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
 
-@app.delete("/inference/{session_id}")
-async def cleanup_inference_session(session_id: str):
-    """Clean up inference session and temporary files"""
-    if session_id not in inference_cache:
-        raise HTTPException(status_code=404, detail="Session not found")
+@app.get("/scenarios/{scenario_id}/download/{filename}")
+async def download_scenario_file(scenario_id: str, filename: str):
+    """Download a scenario file directly"""
+    # Validate scenario ID
+    valid_ids = [s["id"] for s in PREDEFINED_SCENARIOS]
+    if scenario_id not in valid_ids:
+        raise HTTPException(status_code=404, detail=f"Scenario not found: {scenario_id}")
     
-    cache_entry = inference_cache[session_id]
-    temp_dir = cache_entry['temp_dir']
+    file_path = get_scenario_file_path(scenario_id, filename)
     
-    # Clean up temporary directory
-    cleanup_temp_directory(temp_dir)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
     
-    # Remove from cache
-    del inference_cache[session_id]
-    
-    return {"message": f"Session {session_id} cleaned up successfully"}
+    return FileResponse(
+        file_path,
+        filename=filename,
+        media_type='application/octet-stream'
+    )
 
-@app.get("/inference/sessions")
-async def list_active_sessions():
-    """List all active inference sessions"""
-    sessions = []
-    for session_id, cache_entry in inference_cache.items():
-        sessions.append({
-            "session_id": session_id,
-            "timestamp": cache_entry['timestamp'].isoformat(),
-            "temp_dir": cache_entry['temp_dir']
-        })
+@app.post("/generate", response_model=GenerationStatusResponse)
+async def trigger_generation():
+    """Trigger generation of all scenarios"""
+    global generation_status
+    
+    if generation_status["is_generating"]:
+        return GenerationStatusResponse(
+            success=False,
+            status="already_generating",
+            scenarios_completed=generation_status["completed_scenarios"],
+            total_scenarios=len(PREDEFINED_SCENARIOS),
+            current_scenario=generation_status["current_scenario"],
+            error_message="Generation already in progress"
+        )
+    
+    # Start generation in background
+    asyncio.create_task(generate_all_scenarios())
+    
+    return GenerationStatusResponse(
+        success=True,
+        status="started",
+        scenarios_completed=0,
+        total_scenarios=len(PREDEFINED_SCENARIOS),
+        current_scenario=None
+    )
+
+@app.get("/generation-status", response_model=GenerationStatusResponse)
+async def get_generation_status():
+    """Get current generation status"""
+    global generation_status
+    
+    if generation_status["is_generating"]:
+        status = "generating"
+    elif generation_status["error"]:
+        status = "error"
+    elif generation_status["completed_scenarios"] == len(PREDEFINED_SCENARIOS):
+        status = "completed"
+    else:
+        status = "idle"
+    
+    return GenerationStatusResponse(
+        success=True,
+        status=status,
+        scenarios_completed=generation_status["completed_scenarios"],
+        total_scenarios=len(PREDEFINED_SCENARIOS),
+        current_scenario=generation_status["current_scenario"],
+        error_message=generation_status["error"]
+    )
+
+@app.delete("/scenarios/{scenario_id}")
+async def delete_scenario(scenario_id: str):
+    """Delete a scenario and all its data"""
+    # Validate scenario ID
+    valid_ids = [s["id"] for s in PREDEFINED_SCENARIOS]
+    if scenario_id not in valid_ids:
+        raise HTTPException(status_code=404, detail=f"Scenario not found: {scenario_id}")
+    
+    scenario_dir = get_scenario_directory(scenario_id)
+    
+    if os.path.exists(scenario_dir):
+        shutil.rmtree(scenario_dir)
     
     return {
-        "active_sessions": len(sessions),
-        "sessions": sessions
+        "success": True,
+        "message": f"Scenario {scenario_id} deleted successfully"
     }
-
-# Background task to clean up old sessions
-@app.on_event("startup")
-async def startup_event():
-    """Clean up any existing temporary directories on startup"""
-    print("PINN Inference API started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Clean up all temporary directories on shutdown"""
-    for session_id, cache_entry in inference_cache.items():
-        cleanup_temp_directory(cache_entry['temp_dir'])
-    inference_cache.clear()
+    """Clean up on shutdown"""
     print("PINN Inference API shut down")
 
 if __name__ == "__main__":
