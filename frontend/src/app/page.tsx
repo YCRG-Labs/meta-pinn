@@ -13,11 +13,11 @@ const FluidViscosityExplainer = () => {
   const [fadeOutOverlay, setFadeOutOverlay] = useState(false)
 
   // Constants (not user-editable)
-  const REYNOLDS_NUMBER = 100;
   const BACKEND_URL = "http://localhost:8000";
   const MODEL_PATH = "backend/results/trained_model.pth";
 
   // State for parameter inputs (sliders)
+  const [reynoldsNumber, setReynoldsNumber] = useState(100);
   const [nuBaseTrue, setNuBaseTrue] = useState(0.01);
   const [aTrue, setATrue] = useState(0.05);
   const [uMaxInlet, setUMaxInlet] = useState(1.0);
@@ -60,7 +60,7 @@ const FluidViscosityExplainer = () => {
         },
         body: JSON.stringify({
           parameters: {
-            reynolds_number: REYNOLDS_NUMBER,
+            reynolds_number: reynoldsNumber,
             nu_base_true: parseFloat(String(nuBaseTrue)),
             a_true: parseFloat(String(aTrue)),
             u_max_inlet: parseFloat(String(uMaxInlet)),
@@ -695,8 +695,9 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                     <h3 className="text-2xl font-semibold text-blue-300 mb-6">Simulation Parameters</h3>
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
-                      <span className="text-blue-100 font-bold">{REYNOLDS_NUMBER}</span>
+                      <span className="text-blue-100 font-bold">{reynoldsNumber}</span>
                     </div>
+                    {renderSlider("Reynolds Number", "nGridX", reynoldsNumber, setReynoldsNumber, 10, 100, 1)}
                     {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
                     {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
                     {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
