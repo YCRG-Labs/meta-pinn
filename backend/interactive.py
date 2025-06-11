@@ -30,9 +30,9 @@ from config import cfg, Config
 from src.model.model import PINN
 from src.generate_data import generate_collocation_points, generate_boundary_points, generate_sparse_data_points
 
-def create_inference_config(reynolds_number=None, nu_base_true=None, a_true=None, 
-                          u_max_inlet=None, x_max=None, y_max=None, x_min=None, y_min=None,
-                          n_grid_x=100, n_grid_y=50, n_time_slices=5, name="Custom Inference"):
+def create_inference_config(reynolds_number, nu_base_true, a_true, 
+                          u_max_inlet, x_max, y_max, x_min, y_min,
+                          n_grid_x, n_grid_y, n_time_slices, name):
     """
     Create a configuration for inference with specified parameters
     
@@ -42,7 +42,7 @@ def create_inference_config(reynolds_number=None, nu_base_true=None, a_true=None
         a_true: Viscosity variation parameter (for comparison)
         u_max_inlet: Maximum inlet velocity
         x_max, y_max: Domain dimensions
-        x_min, y_min: Domain origin (optional)
+        x_min, y_min: Domain origin
         n_grid_x, n_grid_y: Grid resolution for inference
         n_time_slices: Number of time slices (if unsteady)
         name: Configuration name
@@ -53,32 +53,15 @@ def create_inference_config(reynolds_number=None, nu_base_true=None, a_true=None
     # Create new config instance
     inference_config = Config()
     
-    # Apply parameters if provided
-    if reynolds_number is not None:
-        inference_config.REYNOLDS_NUMBER = reynolds_number
-    
-    if nu_base_true is not None:
-        inference_config.NU_BASE_TRUE = nu_base_true
-    
-    if a_true is not None:
-        inference_config.A_TRUE = a_true
-    
-    if u_max_inlet is not None:
-        inference_config.U_MAX_INLET = u_max_inlet
-    
-    if x_max is not None:
-        inference_config.X_MAX = x_max
-    
-    if y_max is not None:
-        inference_config.Y_MAX = y_max
-    
-    if x_min is not None:
-        inference_config.X_MIN = x_min
-        
-    if y_min is not None:
-        inference_config.Y_MIN = y_min
-    
-    # Store inference-specific parameters
+    # Apply parameters - no defaults, use exactly what was provided
+    inference_config.REYNOLDS_NUMBER = reynolds_number
+    inference_config.NU_BASE_TRUE = nu_base_true
+    inference_config.A_TRUE = a_true
+    inference_config.U_MAX_INLET = u_max_inlet
+    inference_config.X_MAX = x_max
+    inference_config.Y_MAX = y_max
+    inference_config.X_MIN = x_min
+    inference_config.Y_MIN = y_min
     inference_config.N_GRID_X = n_grid_x
     inference_config.N_GRID_Y = n_grid_y
     inference_config.N_TIME_SLICES = n_time_slices
@@ -88,44 +71,35 @@ def create_inference_config(reynolds_number=None, nu_base_true=None, a_true=None
 
 def load_trained_model(model_path, inference_config):
     """
-    Load trained model and prepare it for inference
+    Load a trained model and prepare it for inference
     
     Args:
-        model_path: Path to the saved model file
-        inference_config: Inference configuration object
+        model_path: Path to the trained model file
+        inference_config: Configuration for inference
         
     Returns:
-        Tuple of (loaded_model, updated_config)
+        Loaded model and updated configuration
     """
-    print(f"\nLoading trained model from: {model_path}")
-    
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
-    
     # Load checkpoint to inspect saved configuration
     device = inference_config.DEVICE
     checkpoint = torch.load(model_path, map_location=device)
     
     print("Inspecting saved model configuration...")
     
-    # Extract saved configuration and update inference config
+    # Extract saved configuration but only use model architecture details
     if 'config' in checkpoint:
         saved_config = checkpoint['config']
         print(f"Saved model configuration found:")
         for key, value in saved_config.items():
             print(f"  {key}: {value}")
         
-        # Update critical parameters for model loading
+        # Only update model architecture parameters, not physical parameters
         if 'layers' in saved_config:
             inference_config.PINN_LAYERS = saved_config['layers']
         if 'use_fourier_features' in saved_config:
             inference_config.USE_FOURIER_FEATURES = saved_config['use_fourier_features']
         if 'use_adaptive_weights' in saved_config:
             inference_config.USE_ADAPTIVE_WEIGHTS = saved_config['use_adaptive_weights']
-        if 'nu_base' in saved_config:
-            inference_config.NU_BASE_TRUE = saved_config['nu_base']
-        if 'unsteady' in saved_config:
-            inference_config.UNSTEADY_FLOW = saved_config['unsteady']
     else:
         print("Warning: No saved configuration found in checkpoint.")
     
@@ -134,7 +108,6 @@ def load_trained_model(model_path, inference_config):
     
     print(f"Model loaded successfully!")
     print(f"Model architecture: {inference_config.PINN_LAYERS}")
-    print(f"Learned viscosity parameter: {model.get_inferred_viscosity_param():.6f}")
     print(f"Uses Fourier features: {inference_config.USE_FOURIER_FEATURES}")
     print(f"Uses adaptive weights: {inference_config.USE_ADAPTIVE_WEIGHTS}")
     
