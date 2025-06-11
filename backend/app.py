@@ -73,18 +73,18 @@ def resolve_model_path(model_path: str) -> str:
 # Pydantic models for API
 class InferenceParameters(BaseModel):
     """Parameters for inference configuration"""
-    reynolds_number: Optional[float] = Field(default=100, description="Reynolds number for the flow")
-    nu_base_true: Optional[float] = Field(default=0.01, description="Base viscosity value")
-    a_true: Optional[float] = Field(default=None, description="Reference viscosity parameter for comparison")
-    u_max_inlet: Optional[float] = Field(default=1.0, description="Maximum inlet velocity")
-    x_max: Optional[float] = Field(default=2.0, description="Domain width")
-    y_max: Optional[float] = Field(default=1.0, description="Domain height")
-    x_min: Optional[float] = Field(default=0.0, description="Domain x minimum")
-    y_min: Optional[float] = Field(default=0.0, description="Domain y minimum")
-    n_grid_x: Optional[int] = Field(default=100, description="Grid points in X direction")
-    n_grid_y: Optional[int] = Field(default=50, description="Grid points in Y direction")
-    n_time_slices: Optional[int] = Field(default=5, description="Number of time slices for unsteady flow")
-    name: Optional[str] = Field(default="API Inference", description="Inference session name")
+    reynolds_number: float = Field(description="Reynolds number for the flow")
+    nu_base_true: float = Field(description="Base viscosity value")
+    a_true: float = Field(description="Reference viscosity parameter for comparison")
+    u_max_inlet: float = Field(description="Maximum inlet velocity")
+    x_max: float = Field(description="Domain width")
+    y_max: float = Field(description="Domain height")
+    x_min: float = Field(description="Domain x minimum")
+    y_min: float = Field(description="Domain y minimum")
+    n_grid_x: int = Field(description="Grid points in X direction")
+    n_grid_y: int = Field(description="Grid points in Y direction")
+    n_time_slices: int = Field(description="Number of time slices for unsteady flow")
+    name: str = Field(description="Inference session name")
 
 class InferenceRequest(BaseModel):
     """Request model for inference"""
