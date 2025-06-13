@@ -1,0 +1,52 @@
+{
+  "inference_info": {
+    "model_architecture": [
+      2,
+      128,
+      256,
+      512,
+      512,
+      256,
+      128,
+      64,
+      3
+    ],
+    "learned_viscosity_param": 0.05023981258273125,
+    "base_viscosity": 0.02,
+    "reference_viscosity_param": 0.03,
+    "reynolds_number": 50.0,
+    "max_inlet_velocity": 0.8,
+    "domain_bounds": {
+      "x_min": 0.0,
+      "x_max": 2.0,
+      "y_min": 0.0,
+      "y_max": 1.0
+    },
+    "grid_resolution": [
+      120,
+      60
+    ],
+    "total_inference_points": 7200,
+    "inference_time": "2025-06-13 11:24:31",
+    "configuration_name": "Low_Re_Fine_Viscosity"
+  },
+  "files_created": [
+    "inferred_flow_3d_complete.csv",
+    "inferred_flow_3d_grid.json",
+    "inferred_u_velocity_3d.csv",
+    "inferred_v_velocity_3d.csv",
+    "inferred_pressure_3d.csv",
+    "inferred_velocity_magnitude_3d.csv",
+    "inferred_vorticity_3d.csv",
+    "inferred_viscosity_3d.csv"
+  ],
+  "model_features": {
+    "uses_fourier_features": true,
+    "uses_adaptive_weights": true,
+    "unsteady_flow": false
+  },
+  "inference_accuracy": {
+    "absolute_error": 0.020239812582731248,
+    "relative_error_percent": 67.4660419424375
+  }
+}

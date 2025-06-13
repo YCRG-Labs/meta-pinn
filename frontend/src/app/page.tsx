@@ -2,15 +2,36 @@
 
 import React, { useEffect, useState } from 'react'
 
+// Add these types at the top of the file, after the imports
+interface FlowData {
+  u_velocity: string;
+  v_velocity: string;
+  pressure: string;
+  vorticity: string;
+}
+
+interface ApiMetadata {
+  grid_shape: [number, number];
+  [key: string]: any;
+}
+
+interface ApiResponse {
+  success: boolean;
+  data: FlowData[];
+  metadata: ApiMetadata;
+}
+
 const FluidViscosityExplainer = () => {
   const [isScrolled, setIsScrolled] = useState(false)
   const [selectedLevel, setSelectedLevel] = useState('')
   const [showContent, setShowContent] = useState(false)
   const [isClient, setIsClient] = useState(false)
-  const [apiData, setApiData] = useState(null)
+  const [apiData, setApiData] = useState<ApiResponse | null>(null)
   const [loadingData, setLoadingData] = useState(false)
-  const [apiError, setApiError] = useState(null)
+  const [apiError, setApiError] = useState<string | null>(null)
   const [fadeOutOverlay, setFadeOutOverlay] = useState(false)
+  const [selectedScenario, setSelectedScenario] = useState<string>('')
+  const [scenarios, setScenarios] = useState<any[]>([])
 
   // Constants (not user-editable)
   const BACKEND_URL = "http://localhost:8000";
@@ -30,6 +51,16 @@ const FluidViscosityExplainer = () => {
   const [nTimeSlices] = useState<number>(5);
   const [name] = useState<string>("Frontend Visualization");
   
+  // Add effect to log state changes
+  useEffect(() => {
+    console.log('State updated:', {
+      reynoldsNumber,
+      nuBaseTrue,
+      aTrue,
+      uMaxInlet
+    });
+  }, [reynoldsNumber, nuBaseTrue, aTrue, uMaxInlet]);
+
   // Fix hydration by ensuring client-side rendering
   useEffect(() => {
     setIsClient(true)
@@ -47,75 +78,59 @@ const FluidViscosityExplainer = () => {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [isClient])
 
+  // Fetch available scenarios on component mount
+  useEffect(() => {
+    const fetchScenarios = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/scenarios`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.scenarios) {
+            setScenarios(data.scenarios);
+            console.log('Fetched scenarios:', data.scenarios); // Debug log
+          } else {
+            console.error('Invalid response format:', data);
+          }
+        } else {
+          console.error('Failed to fetch scenarios:', response.status);
+        }
+      } catch (error) {
+        console.error('Error fetching scenarios:', error);
+      }
+    };
+    fetchScenarios();
+  }, []);
+
   // Enhanced fetch function with better error handling
   const fetchPINNData = async () => {
-    setLoadingData(true);
-    setApiError(null);
-
-    // Log current state values
-    console.log('Current state values:', {
-      reynoldsNumber,
-      nuBaseTrue,
-      aTrue,
-      uMaxInlet,
-      xMax,
-      yMax,
-      xMin,
-      yMin,
-      nGridX,
-      nGridY,
-      nTimeSlices
-    });
-
-    // Validate the values before sending
-    if (isNaN(reynoldsNumber) || isNaN(nuBaseTrue) || isNaN(aTrue) || isNaN(uMaxInlet)) {
-      setApiError('Invalid parameter values detected');
-      setLoadingData(false);
+    if (!selectedScenario) {
+      setApiError('Please select a scenario first');
       return;
     }
 
-    const requestBody = {
-      parameters: {
-        reynolds_number: Number(reynoldsNumber),
-        nu_base_true: Number(nuBaseTrue),
-        a_true: Number(aTrue),
-        u_max_inlet: Number(uMaxInlet),
-        x_max: Number(xMax),
-        y_max: Number(yMax),
-        x_min: Number(xMin),
-        y_min: Number(yMin),
-        n_grid_x: Number(nGridX),
-        n_grid_y: Number(nGridY),
-        n_time_slices: Number(nTimeSlices),
-        name: name,
-      },
-      model_path: MODEL_PATH,
-      include_boundary: true,
-      include_centerline: true,
-      include_viscosity: true
-    };
-
-    console.log('Sending request with parameters:', requestBody.parameters); // Debug log
+    setLoadingData(true);
+    setApiError(null);
 
     try {
-      const response = await fetch(`${BACKEND_URL}/inference/single`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error Response:', errorText); // Debug log
-        throw new Error(`API request failed: ${response.status} - ${errorText}`);
+      // First get the scenario metadata
+      const metadataResponse = await fetch(`${BACKEND_URL}/scenarios/${selectedScenario}`);
+      if (!metadataResponse.ok) {
+        throw new Error(`Failed to fetch scenario metadata: ${metadataResponse.status}`);
       }
+      const metadata = await metadataResponse.json();
 
-      const data = await response.json();
-      console.log('API Response:', data); // Debug log
+      // Then get the flow field data
+      const dataResponse = await fetch(`${BACKEND_URL}/scenarios/${selectedScenario}/data/inferred_flow_3d_complete.csv`);
+      if (!dataResponse.ok) {
+        throw new Error(`Failed to fetch flow data: ${dataResponse.status}`);
+      }
+      const data = await dataResponse.json();
+
       if (data.success) {
-        setApiData(data);
+        setApiData({
+          ...data,
+          metadata: metadata
+        });
       } else {
         throw new Error(data.error_message || 'API returned error');
       }
@@ -155,83 +170,53 @@ const FluidViscosityExplainer = () => {
   useEffect(() => {
     if (!isClient || typeof window === 'undefined' || !showContent) return;
 
-    const loadScript = (src: string) => { // Explicitly type src as string
-      return new Promise<void>((resolve, reject) => { // Explicitly type Promise
+    const loadScript = (src: string) => {
+      return new Promise<void>((resolve, reject) => {
         if (document.querySelector(`script[src="${src}"]`)) {
-          resolve(undefined) // Use undefined for void Promise
-          return
+          resolve(undefined);
+          return;
         }
-        const script = document.createElement('script')
-        script.src = src
-        script.onload = () => resolve(undefined); // Use undefined
-        script.onerror = reject
-        document.head.appendChild(script)
-      })
-    }
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve(undefined);
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    };
 
     const initializePlots = async () => {
       try {
         if (!(window as any).d3) {
-          await loadScript('https://d3js.org/d3.v5.min.js')
+          await loadScript('https://d3js.org/d3.v5.min.js');
         }
 
-        const PlotlyModule = await import('plotly.js-dist')
-        const Plotly = PlotlyModule.default
+        const PlotlyModule = await import('plotly.js-dist');
+        const Plotly = PlotlyModule.default;
 
-        const createSampleData = () => {
-          const size = 20
-          const data = []
-          for (let i = 0; i < size; i++) {
-            const row = []
-            for (let j = 0; j < size; j++) {
-              row.push(Math.sin(i * 0.3) * Math.cos(j * 0.3) * 10 + Math.random() * 2)
-            }
-            data.push(row)
-          }
-          return data
-        }
+        if (apiData && apiData.data) {
+          const { data, metadata } = apiData;
+          const gridShape = metadata.grid_shape || [120, 60]; // Default grid shape if not provided
+          const [nx, ny] = gridShape;
 
-        const reshapeToGrid = (dataArray: number[], nx: number, ny: number) => { // Typed parameters
-          const grid: number[][] = [] // Typed grid
-          if (!dataArray || dataArray.length !== nx * ny) {
-            console.warn("Data array is null, undefined, or has incorrect length for reshaping. Using empty values.");
-            for (let i = 0; i < ny; i++) {
-                const row: number[] = [];
-                for (let j = 0; j < nx; j++) {
-                    row.push(0); // Push default value
-                }
-                grid.push(row);
-            }
-            return grid;
-          }
-          for (let i = 0; i < ny; i++) {
-            const row: number[] = [] // Typed row
-            for (let j = 0; j < nx; j++) {
-              const idx = i * nx + j
-              row.push(dataArray[idx])
-            }
-            grid.push(row)
-          }
-          return grid
-        }
-        
-        let velocityData, pressureData, viscosityData
-        // Use state values for default grid size from parameter inputs
-        let currentGridX = typeof nGridX === 'string' ? parseInt(nGridX, 10) : nGridX;
-        let currentGridY = typeof nGridY === 'string' ? parseInt(nGridY, 10) : nGridY;
+          // Extract data from the CSV
+          const uVelocity = data.map((row: any) => parseFloat(row.u_velocity));
+          const vVelocity = data.map((row: any) => parseFloat(row.v_velocity));
+          const pressure = data.map((row: any) => parseFloat(row.pressure));
+          const vorticity = data.map((row: any) => parseFloat(row.vorticity));
 
+          // Calculate velocity magnitude
+          const velocityMagnitude = uVelocity.map((u: number, i: number) => 
+            Math.sqrt(u * u + vVelocity[i] * vVelocity[i])
+          );
 
-        if (apiData && (apiData as any).flow_field) {
-          const flow_field = (apiData as any).flow_field;
-          currentGridX = (flow_field as any).grid_shape[0];
-          currentGridY = (flow_field as any).grid_shape[1];
+          // Reshape data into 2D grids
+          const uVelocityGrid = reshapeToGrid(uVelocity, nx, ny);
+          const vVelocityGrid = reshapeToGrid(vVelocity, nx, ny);
+          const pressureGrid = reshapeToGrid(pressure, nx, ny);
+          const vorticityGrid = reshapeToGrid(vorticity, nx, ny);
+          const velocityMagnitudeGrid = reshapeToGrid(velocityMagnitude, nx, ny);
 
-          velocityData = reshapeToGrid((flow_field as any).velocity_magnitude, currentGridX, currentGridY);
-          pressureData = reshapeToGrid((flow_field as any).pressure, currentGridX, currentGridY);
-          viscosityData = reshapeToGrid((flow_field as any).vorticity, currentGridX, currentGridY);
-        }
-        
-        const commonLayoutProps = {
+          const commonLayoutProps = {
             paper_bgcolor: 'rgba(0,0,0,0)',
             plot_bgcolor: 'rgba(0,0,0,0)',
             scene: {
@@ -242,82 +227,98 @@ const FluidViscosityExplainer = () => {
             },
             autosize: true,
             margin: { l: 0, r: 0, b: 0, t: 50 }
-        };
+          };
 
-        if (document.getElementById('velocityPlot')) {
-          Plotly.newPlot('velocityPlot', [{
-            z: velocityData,
-            type: 'surface',
-            colorscale: 'Viridis',
-            name: 'U Velocity'
-          }], {
-            ...commonLayoutProps,
-            title: { text: 'U Velocity Field (3D Surface)', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity' } }
-          }, { responsive: true });
+          // Plot U Velocity
+          if (document.getElementById('velocityPlot')) {
+            Plotly.newPlot('velocityPlot', [{
+              z: uVelocityGrid,
+              type: 'surface',
+              colorscale: 'Viridis',
+              name: 'U Velocity'
+            }], {
+              ...commonLayoutProps,
+              title: { text: 'U Velocity Field (3D Surface)', font: { color: 'white' } },
+              scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity' } }
+            }, { responsive: true });
+          }
+
+          // Plot Pressure
+          if (document.getElementById('pressurePlot')) {
+            Plotly.newPlot('pressurePlot', [{
+              z: pressureGrid,
+              type: 'surface',
+              colorscale: 'RdBu',
+              name: 'Pressure'
+            }], {
+              ...commonLayoutProps,
+              title: { text: 'Pressure Field (3D Surface)', font: { color: 'white' } },
+              scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Pressure' } }
+            }, { responsive: true });
+          }
+
+          // Plot Velocity Magnitude
+          if (document.getElementById('velocityMagPlot')) {
+            Plotly.newPlot('velocityMagPlot', [{
+              z: velocityMagnitudeGrid,
+              type: 'surface',
+              colorscale: 'Viridis',
+              name: 'Velocity Magnitude'
+            }], {
+              ...commonLayoutProps,
+              title: { text: 'Velocity Magnitude (3D Surface)', font: { color: 'white' } },
+              scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity Magnitude' } }
+            }, { responsive: true });
+          }
+
+          // Plot Vorticity
+          if (document.getElementById('vorticityPlot')) {
+            const maxAbsVorticity = Math.max(...vorticityGrid.flat().map(Math.abs));
+            Plotly.newPlot('vorticityPlot', [{
+              z: vorticityGrid,
+              type: 'surface',
+              colorscale: 'RdBu',
+              name: 'Vorticity',
+              zmin: -maxAbsVorticity,
+              zmax: maxAbsVorticity
+            }], {
+              ...commonLayoutProps,
+              title: { text: 'Vorticity Field (3D Surface)', font: { color: 'white' } },
+              scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Vorticity' } }
+            }, { responsive: true });
+          }
         }
-
-        if (document.getElementById('pressurePlot')) {
-          Plotly.newPlot('pressurePlot', [{
-            z: pressureData,
-            type: 'surface',
-            colorscale: 'RdBu',
-            name: 'Pressure'
-          }], {
-            ...commonLayoutProps,
-            title: { text: 'Pressure Field (3D Surface)', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Pressure' } }
-          }, { responsive: true });
-        }
-
-        if (document.getElementById('velocityMagPlot')) {
-          Plotly.newPlot('velocityMagPlot', [{
-            z: velocityData, // or velocity magnitude data if different
-            type: 'surface',
-            colorscale: 'Viridis',
-            name: 'Velocity Magnitude'
-          }], {
-            ...commonLayoutProps,
-            title: { text: 'Velocity Magnitude (3D Surface)', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Velocity Magnitude' } }
-          }, { responsive: true });
-        }
-
-        if (document.getElementById('vorticityPlot') && viscosityData) {
-          const maxAbsVorticity = Math.max(...viscosityData.flat().map(Math.abs));
-          Plotly.newPlot('vorticityPlot', [{
-            z: viscosityData,
-            type: 'surface',
-            colorscale: 'RdBu',
-            name: 'Vorticity',
-            zmin: -maxAbsVorticity,
-            zmax: maxAbsVorticity
-          }], {
-            ...commonLayoutProps,
-            title: { text: 'Vorticity Field (3D Surface)', font: { color: 'white' } },
-            scene: { ...commonLayoutProps.scene, zaxis: { ...commonLayoutProps.scene.zaxis, title: 'Vorticity' } }
-          }, { responsive: true });
-        }
-
       } catch (error) {
-        console.error('Error loading/initializing Plotly:', error)
+        console.error('Error loading/initializing Plotly:', error);
       }
-    }
+    };
 
-    initializePlots()
-    // Cleanup function (optional, use if plots cause issues on re-renders without full page navigation)
-    // return () => {
-    //   const Plotly = (window as any).Plotly; // Get Plotly instance
-    //   if (Plotly) {
-    //       ['velocityPlot', 'pressurePlot', 'viscosityPlot', 'combinedPlot'].forEach(id => {
-    //           const plotDiv = document.getElementById(id);
-    //           if (plotDiv && plotDiv.data) { // Check if plot exists
-    //               try { Plotly.purge(id); } catch (e) { console.warn(`Could not purge plot ${id}:`, e); }
-    //           }
-    //       });
-    //   }
-    // };
-  }, [isClient, apiData, showContent, nGridX, nGridY]) // Re-run if apiData, showContent, or grid dimensions change
+    initializePlots();
+  }, [isClient, apiData, showContent]);
+
+  const reshapeToGrid = (dataArray: number[], nx: number, ny: number) => {
+    const grid: number[][] = [];
+    if (!dataArray || dataArray.length !== nx * ny) {
+      console.warn("Data array is null, undefined, or has incorrect length for reshaping. Using empty values.");
+      for (let i = 0; i < ny; i++) {
+        const row: number[] = [];
+        for (let j = 0; j < nx; j++) {
+          row.push(0);
+        }
+        grid.push(row);
+      }
+      return grid;
+    }
+    for (let i = 0; i < ny; i++) {
+      const row: number[] = [];
+      for (let j = 0; j < nx; j++) {
+        const idx = i * nx + j;
+        row.push(dataArray[idx]);
+      }
+      grid.push(row);
+    }
+    return grid;
+  };
 
   const handleLevelSelect = (level: string) => {
     setSelectedLevel(level);
@@ -588,32 +589,38 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
     </div>
   );
 
+  // Replace the sliders section with this dropdown menu
+  const renderScenarioSelector = () => (
+    <div className="mb-4">
+      <label htmlFor="scenario-select" className="block text-sm font-medium text-blue-200 mb-1">
+        Select Scenario:
+      </label>
+      <select
+        id="scenario-select"
+        value={selectedScenario}
+        onChange={(e) => setSelectedScenario(e.target.value)}
+        className="w-full p-2 rounded-lg bg-gray-100 border border-white/20 text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <option value="">Select a scenario...</option>
+        {scenarios.map((scenario) => (
+          <option key={scenario.id} value={scenario.id}>
+            {scenario.name} - {scenario.description}
+          </option>
+        ))}
+      </select>
+      {scenarios.length === 0 && (
+        <p className="mt-2 text-yellow-400 text-sm">
+          Loading scenarios...
+        </p>
+      )}
+    </div>
+  );
+
   if (!isClient) {
     return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 flex items-center justify-center">
       <div className="text-white text-xl">Loading...</div>
     </div>
   }
-
-  const renderSlider = (label: string, id: string, value: number, setter: (value: number) => void, min: number, max: number, step: number, unit?: string) => (
-    <div className="mb-4">
-      <label htmlFor={id} className="block text-sm font-medium text-blue-200 mb-1">{label}: <span className="text-blue-100 font-bold">{value}{unit ? ` ${unit}` : ''}</span></label>
-      <input
-        type="range"
-        id={id}
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(e) => {
-          const newValue = Number(e.target.value);
-          console.log(`Slider ${id} changed from ${value} to:`, newValue); // Debug log
-          setter(newValue);
-        }}
-        className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gray-300 [&::-webkit-slider-thumb]:cursor-pointer"
-      />
-    </div>
-  );
-
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900" style={{
@@ -724,17 +731,11 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
                   {/* Parameter Inputs Column */}
                   <div className="md:col-span-1 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-xl">
-                    <h3 className="text-2xl font-semibold text-blue-300 mb-6">Simulation Parameters</h3>
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-blue-200 mb-1">Reynolds Number:</label>
-                    </div>
-                    {renderSlider("Reynolds Number", "reynoldsNumber", reynoldsNumber, setReynoldsNumber, 10, 100, 1)}
-                    {renderSlider("Base Viscosity (ν_base)", "nuBaseTrue", nuBaseTrue, setNuBaseTrue, 0.001, 0.1, 0.001)}
-                    {renderSlider("Viscosity Gradient (a_true)", "aTrue", aTrue, setATrue, 0.0, 0.2, 0.001)}
-                    {renderSlider("Max Inlet Velocity (U_max)", "uMaxInlet", uMaxInlet, setUMaxInlet, 0.1, 5.0, 0.01)}
+                    <h3 className="text-2xl font-semibold text-blue-300 mb-6">Select Scenario</h3>
+                    {renderScenarioSelector()}
                     <button
                       onClick={fetchPINNData}
-                      disabled={loadingData}
+                      disabled={loadingData || !selectedScenario}
                       className="w-full mt-6 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition duration-150 ease-in-out disabled:opacity-50 flex items-center justify-center"
                     >
                       {loadingData ? (
@@ -742,13 +743,13 @@ This exemplifies classical inverse problem pathology where data fitting ≠ para
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                      ) : "🚀 Run Inference"}
+                      ) : "🚀 Load Scenario"}
                     </button>
-                     <button
-                        onClick={testBackendConnection}
-                        className="w-full mt-3 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition duration-150 ease-in-out"
+                    <button
+                      onClick={testBackendConnection}
+                      className="w-full mt-3 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition duration-150 ease-in-out"
                     >
-                        🔌 Test Backend
+                      🔌 Test Backend
                     </button>
                     {apiError && <p className="mt-4 text-red-400 text-sm">Error: {apiError}</p>}
                   </div>

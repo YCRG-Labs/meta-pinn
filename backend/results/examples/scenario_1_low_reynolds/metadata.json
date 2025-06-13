@@ -1,0 +1,58 @@
+{
+  "scenario_id": "scenario_1_low_reynolds",
+  "scenario_name": "Low Reynolds Number Flow",
+  "description": "Low Reynolds number (Re=50) with fine viscosity variation",
+  "parameters": {
+    "reynolds_number": 50.0,
+    "nu_base_true": 0.02,
+    "a_true": 0.03,
+    "u_max_inlet": 0.8,
+    "x_max": 2.0,
+    "y_max": 1.0,
+    "x_min": 0.0,
+    "y_min": 0.0,
+    "n_grid_x": 120,
+    "n_grid_y": 60,
+    "n_time_slices": 1,
+    "name": "Low_Re_Fine_Viscosity"
+  },
+  "learned_viscosity_param": 0.05023981258273125,
+  "processing_time": 0.5140023231506348,
+  "total_points": 7200,
+  "grid_shape": [
+    120,
+    60
+  ],
+  "files_available": [
+    "inference_summary.json",
+    "inferred_boundary_analysis.csv",
+    "inferred_centerline_analysis.csv",
+    "inferred_flow_3d_complete.csv",
+    "inferred_flow_3d_grid.json",
+    "inferred_pressure_3d.csv",
+    "inferred_u_velocity_3d.csv",
+    "inferred_v_velocity_3d.csv",
+    "inferred_velocity_magnitude_3d.csv",
+    "inferred_viscosity_3d.csv",
+    "inferred_viscosity_profile.csv",
+    "inferred_vorticity_3d.csv",
+    "metadata.json"
+  ],
+  "generated_at": "2025-06-13T11:24:31.468170",
+  "model_info": {
+    "architecture": [
+      2,
+      128,
+      256,
+      512,
+      512,
+      256,
+      128,
+      64,
+      3
+    ],
+    "uses_fourier_features": true,
+    "uses_adaptive_weights": true,
+    "reynolds_number": 50.0
+  }
+}

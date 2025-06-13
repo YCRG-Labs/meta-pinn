@@ -176,7 +176,12 @@ def get_scenario_directory(scenario_id: str) -> str:
 
 def get_scenario_file_path(scenario_id: str, filename: str) -> str:
     """Get the full path for a scenario file"""
-    return os.path.join(get_scenario_directory(scenario_id), filename)
+    scenario_dir = get_scenario_directory(scenario_id)
+    # Check if file is in the inference subdirectory
+    inference_dir = os.path.join(scenario_dir, f"inference_{scenario_id}")
+    if os.path.exists(os.path.join(inference_dir, filename)):
+        return os.path.join(inference_dir, filename)
+    return os.path.join(scenario_dir, filename)
 
 def scenario_exists(scenario_id: str) -> bool:
     """Check if a scenario directory and files exist"""
@@ -201,13 +206,15 @@ def scenario_exists(scenario_id: str) -> bool:
 def get_available_files(scenario_id: str) -> List[str]:
     """Get list of available files for a scenario"""
     scenario_dir = get_scenario_directory(scenario_id)
-    if not os.path.exists(scenario_dir):
-        return []
+    inference_dir = os.path.join(scenario_dir, f"inference_{scenario_id}")
     
     files = []
-    for filename in os.listdir(scenario_dir):
-        if filename.endswith(('.csv', '.json')):
-            files.append(filename)
+    # Check both directories
+    for directory in [scenario_dir, inference_dir]:
+        if os.path.exists(directory):
+            for filename in os.listdir(directory):
+                if filename.endswith(('.csv', '.json')):
+                    files.append(filename)
     
     return sorted(files)
 

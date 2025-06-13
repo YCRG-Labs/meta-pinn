@@ -1,0 +1,58 @@
+{
+  "scenario_id": "scenario_2_medium_reynolds",
+  "scenario_name": "Medium Reynolds Number Flow",
+  "description": "Medium Reynolds number (Re=100) with moderate viscosity variation",
+  "parameters": {
+    "reynolds_number": 100.0,
+    "nu_base_true": 0.01,
+    "a_true": 0.05,
+    "u_max_inlet": 1.0,
+    "x_max": 2.5,
+    "y_max": 1.0,
+    "x_min": 0.0,
+    "y_min": 0.0,
+    "n_grid_x": 150,
+    "n_grid_y": 75,
+    "n_time_slices": 1,
+    "name": "Medium_Re_Moderate_Viscosity"
+  },
+  "learned_viscosity_param": 0.05023981258273125,
+  "processing_time": 0.7438561916351318,
+  "total_points": 11250,
+  "grid_shape": [
+    150,
+    75
+  ],
+  "files_available": [
+    "inference_summary.json",
+    "inferred_boundary_analysis.csv",
+    "inferred_centerline_analysis.csv",
+    "inferred_flow_3d_complete.csv",
+    "inferred_flow_3d_grid.json",
+    "inferred_pressure_3d.csv",
+    "inferred_u_velocity_3d.csv",
+    "inferred_v_velocity_3d.csv",
+    "inferred_velocity_magnitude_3d.csv",
+    "inferred_viscosity_3d.csv",
+    "inferred_viscosity_profile.csv",
+    "inferred_vorticity_3d.csv",
+    "metadata.json"
+  ],
+  "generated_at": "2025-06-13T11:24:32.227984",
+  "model_info": {
+    "architecture": [
+      2,
+      128,
+      256,
+      512,
+      512,
+      256,
+      128,
+      64,
+      3
+    ],
+    "uses_fourier_features": true,
+    "uses_adaptive_weights": true,
+    "reynolds_number": 100.0
+  }
+}
