@@ -54,7 +54,7 @@ def setup_output_directory():
     return base_dir
 
 def load_existing_model(model_path):
-    """Load existing model if available"""
+    """Load existing model if available, handling architecture mismatches"""
     if not os.path.exists(model_path):
         print(f"❌ No trained model found at: {model_path}")
         print("Please run 'python main.py' first to train a model")
@@ -66,6 +66,28 @@ def load_existing_model(model_path):
         
     try:
         print(f"📂 Loading existing model from: {model_path}")
+        
+        # First, try to inspect the checkpoint to understand the architecture
+        checkpoint = torch.load(model_path, map_location=cfg.DEVICE)
+        
+        if 'config' in checkpoint:
+            saved_config = checkpoint['config']
+            print(f"📋 Found saved model config: {saved_config}")
+            
+            # Update current config to match saved model
+            if 'layers' in saved_config:
+                cfg.PINN_LAYERS = saved_config['layers']
+            if 'use_fourier_features' in saved_config:
+                cfg.USE_FOURIER_FEATURES = saved_config['use_fourier_features']
+            if 'use_adaptive_weights' in saved_config:
+                cfg.USE_ADAPTIVE_WEIGHTS = saved_config['use_adaptive_weights']
+                
+            print(f"🔧 Updated config to match saved model:")
+            print(f"   Architecture: {cfg.PINN_LAYERS}")
+            print(f"   Fourier features: {cfg.USE_FOURIER_FEATURES}")
+            print(f"   Adaptive weights: {cfg.USE_ADAPTIVE_WEIGHTS}")
+        
+        # Now try to load with updated config
         model = PINN.load(model_path, cfg)
         
         # Quick performance check
@@ -74,8 +96,17 @@ def load_existing_model(model_path):
         print(f"✅ Model loaded - Parameter error: {test_error:.2f}%")
         
         return model
+        
     except Exception as e:
         print(f"❌ Could not load model: {e}")
+        print("\n💡 This usually happens when:")
+        print("   • Model was trained with different architecture (advanced features)")
+        print("   • Model file is corrupted")
+        print("   • Config mismatch between training and current settings")
+        print("\n🔧 To fix:")
+        print("   • Run 'python main.py' to retrain with current config")
+        print("   • Or check if model was trained with --advanced, --fourier, etc.")
+        print("\n⚠️  3D visualizations will be skipped")
         return None
 
 def find_data_directories():
@@ -127,48 +158,100 @@ def load_csv_data(file_path):
         print(f"⚠️  Could not load {file_path}: {e}")
         return None
 
-def generate_flow_field_visualization(data_sources, save_dir):
-    """Generate flow field visualizations from existing data"""
-    print("\n🎨 Generating flow field visualizations...")
+def is_grid_regular(X, Y, tolerance=1e-6):
+    """Check if grid is regular (equally spaced) for streamplot"""
+    try:
+        # Check if x spacing is regular
+        x_row = X[0, :]
+        x_diff = np.diff(x_row)
+        x_regular = np.allclose(x_diff, x_diff[0], atol=tolerance)
+        
+        # Check if y spacing is regular
+        y_col = Y[:, 0]
+        y_diff = np.diff(y_col)
+        y_regular = np.allclose(y_diff, y_diff[0], atol=tolerance)
+        
+        return x_regular and y_regular
+    except:
+        return False
+
+def create_regular_grid(X, Y, u_grid, v_grid, nx_new=None, ny_new=None):
+    """Create a regular grid from irregular data using interpolation"""
+    try:
+        from scipy.interpolate import griddata
+        
+        # Default grid size
+        if nx_new is None:
+            nx_new = min(50, X.shape[0])
+        if ny_new is None:
+            ny_new = min(25, X.shape[1])
+        
+        # Create regular grid
+        x_min, x_max = X.min(), X.max()
+        y_min, y_max = Y.min(), Y.max()
+        
+        x_reg = np.linspace(x_min, x_max, nx_new)
+        y_reg = np.linspace(y_min, y_max, ny_new)
+        X_reg, Y_reg = np.meshgrid(x_reg, y_reg, indexing='ij')
+        
+        # Flatten original data for interpolation
+        points = np.column_stack((X.ravel(), Y.ravel()))
+        
+        # Interpolate u and v to regular grid
+        u_reg = griddata(points, u_grid.ravel(), (X_reg, Y_reg), method='linear', fill_value=0)
+        v_reg = griddata(points, v_grid.ravel(), (X_reg, Y_reg), method='linear', fill_value=0)
+        
+        return X_reg, Y_reg, u_reg, v_reg
+    except ImportError:
+        # If scipy not available, return None
+        print("⚠️  Scipy not available for grid interpolation, using quiver plot instead")
+        return None, None, None, None
+    except Exception as e:
+        print(f"⚠️  Grid regularization failed: {e}")
+        return None, None, None, None
+    """Safely load CSV data"""
+    try:
+        return pd.read_csv(file_path)
+    except Exception as e:
+        print(f"⚠️  Could not load {file_path}: {e}")
+        return None
+
+def generate_single_flow_field_robust(source_name, source_info, save_dir):
+    """Generate flow field visualization for a single scenario (robust version)"""
+    flow_file = os.path.join(source_info['path'], 'inferred_flow_3d_complete.csv')
     
-    # Find the best data source (prefer the most recent or complete)
-    flow_data = None
-    data_source_name = "unknown"
-    
-    for source_name, source_info in data_sources.items():
-        flow_file = os.path.join(source_info['path'], 'inferred_flow_3d_complete.csv')
-        if os.path.exists(flow_file):
-            flow_data = load_csv_data(flow_file)
-            if flow_data is not None:
-                data_source_name = source_name
-                print(f"📊 Using flow data from: {source_name}")
-                break
-    
-    if flow_data is None:
-        print("❌ No suitable flow field data found")
+    if not os.path.exists(flow_file):
+        print(f"⚠️  No flow data found for {source_name}")
         return None
     
-    # Create flow field visualization
-    fig, axs = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle(f'PINN Flow Field Analysis\nData Source: {data_source_name}', 
-                 fontsize=16, fontweight='bold')
+    flow_data = load_csv_data(flow_file)
+    if flow_data is None:
+        return None
+    
+    print(f"📊 Generating flow fields for: {source_name}")
+    
+    # Load metadata if available
+    metadata = {}
+    metadata_file = os.path.join(source_info['path'], 'inference_summary.json')
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+        except:
+            pass
     
     # Determine grid structure
     if 'grid_i' in flow_data.columns and 'grid_j' in flow_data.columns:
-        # Data has grid indices
         grid_i = flow_data['grid_i'].values
         grid_j = flow_data['grid_j'].values
         nx = grid_i.max() + 1
         ny = grid_j.max() + 1
-        
         X = flow_data['x'].values.reshape(nx, ny)
         Y = flow_data['y'].values.reshape(nx, ny)
     else:
-        # Try to infer grid structure
         x_unique = sorted(flow_data['x'].unique())
         y_unique = sorted(flow_data['y'].unique())
         nx, ny = len(x_unique), len(y_unique)
-        
         X, Y = np.meshgrid(x_unique, y_unique, indexing='ij')
     
     # Reshape field data
@@ -185,7 +268,6 @@ def generate_flow_field_visualization(data_sources, save_dir):
         if 'vorticity' in flow_data.columns:
             vorticity = flow_data['vorticity'].values.reshape(nx, ny)
         else:
-            # Calculate vorticity
             dx = (X.max() - X.min()) / (nx - 1)
             dy = (Y.max() - Y.min()) / (ny - 1)
             u_y = np.gradient(u_grid, dy, axis=1)
@@ -193,10 +275,154 @@ def generate_flow_field_visualization(data_sources, save_dir):
             vorticity = v_x - u_y
             
     except Exception as e:
-        print(f"❌ Error reshaping data: {e}")
+        print(f"❌ Error reshaping data for {source_name}: {e}")
         return None
     
-    # Create plots
+    # Create detailed flow field visualization - NO STREAMPLOT
+    fig, axs = plt.subplots(2, 3, figsize=(18, 12))
+    
+    # Extract scenario info
+    learned_param = flow_data['learned_viscosity_param'].iloc[0] if 'learned_viscosity_param' in flow_data.columns else "N/A"
+    reynolds = metadata.get('inference_info', {}).get('reynolds_number', "N/A")
+    
+    fig.suptitle(f'Flow Field Analysis: {source_name.replace("_", " ").title()}\n'
+                 f'Re = {reynolds}, Learned Parameter = {learned_param}', 
+                 fontsize=16, fontweight='bold')
+    
+    # 1. U velocity with velocity vectors (NO STREAMPLOT)
+    im0 = axs[0, 0].contourf(X, Y, u_grid, 50, cmap='viridis')
+    stride = max(1, nx//15)
+    axs[0, 0].quiver(X[::stride, ::stride], Y[::stride, ::stride], 
+                   u_grid[::stride, ::stride], v_grid[::stride, ::stride],
+                   color='white', scale=20, width=0.002, alpha=0.8)
+    plt.colorbar(im0, ax=axs[0, 0], label='U Velocity (m/s)')
+    axs[0, 0].set_xlabel('X (m)')
+    axs[0, 0].set_ylabel('Y (m)')
+    axs[0, 0].set_title('U-Velocity with Vectors', fontweight='bold')
+    
+    # 2. V velocity
+    im1 = axs[0, 1].contourf(X, Y, v_grid, 50, cmap='RdBu_r')
+    plt.colorbar(im1, ax=axs[0, 1], label='V Velocity (m/s)')
+    axs[0, 1].set_xlabel('X (m)')
+    axs[0, 1].set_ylabel('Y (m)')
+    axs[0, 1].set_title('V-Velocity Field', fontweight='bold')
+    
+    # 3. Pressure field
+    im2 = axs[0, 2].contourf(X, Y, p_grid, 50, cmap='plasma')
+    plt.colorbar(im2, ax=axs[0, 2], label='Pressure (Pa)')
+    axs[0, 2].set_xlabel('X (m)')
+    axs[0, 2].set_ylabel('Y (m)')
+    axs[0, 2].set_title('Pressure Field', fontweight='bold')
+    
+    # 4. Velocity magnitude with vectors
+    im3 = axs[1, 0].contourf(X, Y, vel_mag, 50, cmap='viridis')
+    axs[1, 0].quiver(X[::stride, ::stride], Y[::stride, ::stride], 
+                     u_grid[::stride, ::stride], v_grid[::stride, ::stride],
+                     color='white', scale=25, width=0.003)
+    plt.colorbar(im3, ax=axs[1, 0], label='Velocity Magnitude (m/s)')
+    axs[1, 0].set_xlabel('X (m)')
+    axs[1, 0].set_ylabel('Y (m)')
+    axs[1, 0].set_title('Velocity Magnitude & Vectors', fontweight='bold')
+    
+    # 5. Vorticity field
+    im4 = axs[1, 1].contourf(X, Y, vorticity, 50, cmap='RdBu_r')
+    plt.colorbar(im4, ax=axs[1, 1], label='Vorticity (1/s)')
+    axs[1, 1].set_xlabel('X (m)')
+    axs[1, 1].set_ylabel('Y (m)')
+    axs[1, 1].set_title('Vorticity Field', fontweight='bold')
+    
+    # 6. Centerline velocity profile
+    y_center_idx = ny // 2
+    u_centerline = u_grid[:, y_center_idx]
+    x_centerline = X[:, y_center_idx]
+    axs[1, 2].plot(x_centerline, u_centerline, 'b-', linewidth=2, label='Centerline U')
+    axs[1, 2].set_xlabel('X (m)')
+    axs[1, 2].set_ylabel('U Velocity (m/s)')
+    axs[1, 2].set_title('Centerline Velocity Profile', fontweight='bold')
+    axs[1, 2].grid(True, alpha=0.3)
+    axs[1, 2].legend()
+    
+    plt.tight_layout()
+    
+    # Save individual scenario
+    clean_name = source_name.replace('inference_', '').replace('scenario_', '')
+    save_path = os.path.join(save_dir, f'flow_fields_{clean_name}.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+    
+    return save_path
+    """Generate flow field visualization for a single scenario"""
+    flow_file = os.path.join(source_info['path'], 'inferred_flow_3d_complete.csv')
+    
+    if not os.path.exists(flow_file):
+        print(f"⚠️  No flow data found for {source_name}")
+        return None
+    
+    flow_data = load_csv_data(flow_file)
+    if flow_data is None:
+        return None
+    
+    print(f"📊 Generating flow fields for: {source_name}")
+    
+    # Load metadata if available
+    metadata = {}
+    metadata_file = os.path.join(source_info['path'], 'inference_summary.json')
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+        except:
+            pass
+    
+    # Determine grid structure
+    if 'grid_i' in flow_data.columns and 'grid_j' in flow_data.columns:
+        grid_i = flow_data['grid_i'].values
+        grid_j = flow_data['grid_j'].values
+        nx = grid_i.max() + 1
+        ny = grid_j.max() + 1
+        X = flow_data['x'].values.reshape(nx, ny)
+        Y = flow_data['y'].values.reshape(nx, ny)
+    else:
+        x_unique = sorted(flow_data['x'].unique())
+        y_unique = sorted(flow_data['y'].unique())
+        nx, ny = len(x_unique), len(y_unique)
+        X, Y = np.meshgrid(x_unique, y_unique, indexing='ij')
+    
+    # Reshape field data
+    try:
+        u_grid = flow_data['u_velocity'].values.reshape(nx, ny)
+        v_grid = flow_data['v_velocity'].values.reshape(nx, ny)
+        p_grid = flow_data['pressure'].values.reshape(nx, ny)
+        
+        if 'velocity_magnitude' in flow_data.columns:
+            vel_mag = flow_data['velocity_magnitude'].values.reshape(nx, ny)
+        else:
+            vel_mag = np.sqrt(u_grid**2 + v_grid**2)
+        
+        if 'vorticity' in flow_data.columns:
+            vorticity = flow_data['vorticity'].values.reshape(nx, ny)
+        else:
+            dx = (X.max() - X.min()) / (nx - 1)
+            dy = (Y.max() - Y.min()) / (ny - 1)
+            u_y = np.gradient(u_grid, dy, axis=1)
+            v_x = np.gradient(v_grid, dx, axis=0)
+            vorticity = v_x - u_y
+            
+    except Exception as e:
+        print(f"❌ Error reshaping data for {source_name}: {e}")
+        return None
+    
+    # Create detailed flow field visualization
+    fig, axs = plt.subplots(2, 3, figsize=(18, 12))
+    
+    # Extract scenario info
+    learned_param = flow_data['learned_viscosity_param'].iloc[0] if 'learned_viscosity_param' in flow_data.columns else "N/A"
+    reynolds = metadata.get('inference_info', {}).get('reynolds_number', "N/A")
+    
+    fig.suptitle(f'Flow Field Analysis: {source_name.replace("_", " ").title()}\n'
+                 f'Re = {reynolds}, Learned Parameter = {learned_param}', 
+                 fontsize=16, fontweight='bold')
+    
     # U velocity with streamlines
     im0 = axs[0, 0].contourf(X, Y, u_grid, 50, cmap='viridis')
     axs[0, 0].streamplot(X.T, Y.T, u_grid.T, v_grid.T, density=1.5, color='white', linewidth=0.8)
@@ -221,7 +447,7 @@ def generate_flow_field_visualization(data_sources, save_dir):
     
     # Velocity magnitude with vectors
     im3 = axs[1, 0].contourf(X, Y, vel_mag, 50, cmap='viridis')
-    stride = max(1, nx//20)  # Adaptive stride
+    stride = max(1, nx//20)
     axs[1, 0].quiver(X[::stride, ::stride], Y[::stride, ::stride], 
                      u_grid[::stride, ::stride], v_grid[::stride, ::stride],
                      color='white', scale=25, width=0.003)
@@ -250,15 +476,248 @@ def generate_flow_field_visualization(data_sources, save_dir):
     
     plt.tight_layout()
     
-    # Save
-    save_path = os.path.join(save_dir, 'comprehensive_flow_fields.png')
+    # Save individual scenario
+    clean_name = source_name.replace('inference_', '').replace('scenario_', '')
+    save_path = os.path.join(save_dir, f'flow_fields_{clean_name}.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
     
-    print(f"✅ Flow field visualization saved: {save_path}")
     return save_path
 
-def generate_viscosity_analysis(data_sources, save_dir):
+def generate_flow_field_visualizations(data_sources, save_dir):
+    """Generate flow field visualizations for ALL scenarios"""
+    print("\n🎨 Generating flow field visualizations for each scenario...")
+    
+    generated_files = []
+    
+    # Generate individual flow fields for each scenario using robust method
+    for source_name, source_info in data_sources.items():
+        try:
+            flow_path = generate_single_flow_field(source_name, source_info, save_dir)
+            if flow_path:
+                generated_files.append(flow_path)
+                print(f"✅ Generated: {flow_path}")
+        except Exception as e:
+            print(f"❌ Failed to generate flow field for {source_name}: {e}")
+            continue
+    
+    if not generated_files:
+        print("❌ No flow field visualizations could be generated")
+        return []
+    
+    # Generate a combined comparison if we have multiple scenarios
+    if len(generated_files) > 1:
+        try:
+            comparison_path = generate_flow_field_comparison(data_sources, save_dir)
+            if comparison_path:
+                generated_files.append(comparison_path)
+        except Exception as e:
+            print(f"⚠️  Flow field comparison failed: {e}")
+    
+    print(f"✅ Generated {len(generated_files)} flow field visualizations")
+    return generated_files
+
+def generate_flow_field_comparison(data_sources, save_dir):
+    """Generate a comparison plot showing multiple scenarios side by side"""
+    print("📊 Creating flow field comparison...")
+    
+    # Collect data from all sources
+    scenario_data = []
+    for source_name, source_info in data_sources.items():
+        flow_file = os.path.join(source_info['path'], 'inferred_flow_3d_complete.csv')
+        if os.path.exists(flow_file):
+            flow_data = load_csv_data(flow_file)
+            if flow_data is not None:
+                scenario_data.append({
+                    'name': source_name.replace('_', ' ').title(),
+                    'data': flow_data,
+                    'source_info': source_info
+                })
+    
+    if len(scenario_data) < 2:
+        return None
+    
+    # Create comparison figure
+    n_scenarios = len(scenario_data)
+    fig, axs = plt.subplots(n_scenarios, 3, figsize=(15, 5*n_scenarios))
+    if n_scenarios == 1:
+        axs = axs.reshape(1, -1)
+    
+    fig.suptitle('Flow Field Comparison Across Scenarios', fontsize=16, fontweight='bold')
+    
+    for i, scenario in enumerate(scenario_data):
+        flow_data = scenario['data']
+        
+        # Process grid data
+        if 'grid_i' in flow_data.columns and 'grid_j' in flow_data.columns:
+            grid_i = flow_data['grid_i'].values
+            grid_j = flow_data['grid_j'].values
+            nx = grid_i.max() + 1
+            ny = grid_j.max() + 1
+            X = flow_data['x'].values.reshape(nx, ny)
+            Y = flow_data['y'].values.reshape(nx, ny)
+        else:
+            x_unique = sorted(flow_data['x'].unique())
+            y_unique = sorted(flow_data['y'].unique())
+            nx, ny = len(x_unique), len(y_unique)
+            X, Y = np.meshgrid(x_unique, y_unique, indexing='ij')
+        
+        u_grid = flow_data['u_velocity'].values.reshape(nx, ny)
+        v_grid = flow_data['v_velocity'].values.reshape(nx, ny)
+        p_grid = flow_data['pressure'].values.reshape(nx, ny)
+        vel_mag = np.sqrt(u_grid**2 + v_grid**2)
+        
+        learned_param = flow_data['learned_viscosity_param'].iloc[0] if 'learned_viscosity_param' in flow_data.columns else "N/A"
+        
+        # Plot velocity magnitude
+        im1 = axs[i, 0].contourf(X, Y, vel_mag, 50, cmap='viridis')
+        plt.colorbar(im1, ax=axs[i, 0])
+        axs[i, 0].set_title(f'{scenario["name"]}\nVelocity Magnitude')
+        axs[i, 0].set_ylabel('Y (m)')
+        
+        # Plot pressure
+        im2 = axs[i, 1].contourf(X, Y, p_grid, 50, cmap='plasma')
+        plt.colorbar(im2, ax=axs[i, 1])
+        axs[i, 1].set_title(f'Pressure\nParam: {learned_param}')
+        
+        # Plot flow vectors (avoiding streamplot issues)
+        try:
+            stride = max(1, nx//10)
+            axs[i, 2].quiver(X[::stride, ::stride], Y[::stride, ::stride], 
+                           u_grid[::stride, ::stride], v_grid[::stride, ::stride],
+                           color='blue', scale=15, alpha=0.8, width=0.003)
+            axs[i, 2].contourf(X, Y, vel_mag, 20, cmap='viridis', alpha=0.6)
+            axs[i, 2].set_title('Flow Vectors')
+        except Exception as e:
+            print(f"⚠️  Vector plot failed for {scenario['name']}: {e}")
+            # Just show velocity magnitude
+            axs[i, 2].contourf(X, Y, vel_mag, 20, cmap='viridis')
+            axs[i, 2].set_title('Velocity Magnitude')
+        
+        # Set x-labels only for bottom row
+        if i == n_scenarios - 1:
+            axs[i, 0].set_xlabel('X (m)')
+            axs[i, 1].set_xlabel('X (m)')
+            axs[i, 2].set_xlabel('X (m)')
+    
+    plt.tight_layout()
+    
+    save_path = os.path.join(save_dir, 'flow_fields_comparison.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+    
+    print(f"✅ Flow field comparison saved: {save_path}")
+    return save_path
+
+def generate_single_viscosity_analysis(source_name, source_info, save_dir):
+    """Generate viscosity analysis for a single scenario"""
+    visc_file = os.path.join(source_info['path'], 'inferred_viscosity_profile.csv')
+    
+    if not os.path.exists(visc_file):
+        print(f"⚠️  No viscosity data found for {source_name}")
+        return None
+    
+    viscosity_data = load_csv_data(visc_file)
+    if viscosity_data is None:
+        return None
+    
+    print(f"🔬 Generating viscosity analysis for: {source_name}")
+    
+    # Load metadata if available
+    metadata = {}
+    metadata_file = os.path.join(source_info['path'], 'inference_summary.json')
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+        except:
+            pass
+    
+    # Create viscosity analysis
+    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # Extract data
+    y_profile = viscosity_data['y'].values
+    nu_learned = viscosity_data['viscosity_learned'].values
+    nu_reference = viscosity_data['viscosity_reference'].values
+    learned_param = viscosity_data['learned_viscosity_param'].iloc[0]
+    reference_param = viscosity_data['reference_viscosity_param'].iloc[0]
+    base_viscosity = viscosity_data['base_viscosity'].iloc[0]
+    
+    reynolds = metadata.get('inference_info', {}).get('reynolds_number', "N/A")
+    
+    fig.suptitle(f'Viscosity Analysis: {source_name.replace("_", " ").title()}\n'
+                 f'Re = {reynolds}', fontsize=16, fontweight='bold')
+    
+    # 1D viscosity profile comparison
+    axs[0, 0].plot(y_profile, nu_learned, 'b-', linewidth=3, 
+                   label=f'Learned: ν = {base_viscosity:.3f} + {learned_param:.4f}y')
+    axs[0, 0].plot(y_profile, nu_reference, 'r--', linewidth=3, 
+                   label=f'Reference: ν = {base_viscosity:.3f} + {reference_param:.4f}y')
+    axs[0, 0].set_xlabel('Y (m)')
+    axs[0, 0].set_ylabel('Viscosity (m²/s)')
+    axs[0, 0].set_title('Viscosity Profile Comparison', fontweight='bold')
+    axs[0, 0].legend()
+    axs[0, 0].grid(True, alpha=0.3)
+    
+    # Parameter comparison
+    axs[0, 1].bar(['Reference', 'Learned'], [reference_param, learned_param], 
+                  color=['red', 'blue'], alpha=0.7, edgecolor='black', linewidth=2)
+    axs[0, 1].set_ylabel('Parameter Value')
+    axs[0, 1].set_title('Parameter Comparison', fontweight='bold')
+    axs[0, 1].grid(True, alpha=0.3, axis='y')
+    
+    # Add value annotations
+    for i, val in enumerate([reference_param, learned_param]):
+        axs[0, 1].annotate(f'{val:.4f}', xy=(i, val), xytext=(0, 3), 
+                          textcoords="offset points", ha='center', va='bottom',
+                          fontweight='bold')
+    
+    # Error analysis
+    if 'relative_error_percent' in viscosity_data.columns:
+        rel_error = viscosity_data['relative_error_percent'].values
+        axs[1, 0].plot(y_profile, rel_error, 'orange', linewidth=2)
+        axs[1, 0].set_xlabel('Y (m)')
+        axs[1, 0].set_ylabel('Relative Error (%)')
+        axs[1, 0].set_title('Relative Error Profile', fontweight='bold')
+        axs[1, 0].grid(True, alpha=0.3)
+        
+        # Error histogram
+        axs[1, 1].hist(rel_error, bins=20, alpha=0.7, color='orange', edgecolor='black')
+        axs[1, 1].set_xlabel('Relative Error (%)')
+        axs[1, 1].set_ylabel('Frequency')
+        axs[1, 1].set_title('Error Distribution', fontweight='bold')
+        axs[1, 1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    # Save individual scenario
+    clean_name = source_name.replace('inference_', '').replace('scenario_', '')
+    save_path = os.path.join(save_dir, f'viscosity_analysis_{clean_name}.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+    
+    return save_path
+
+def generate_viscosity_analyses(data_sources, save_dir):
+    """Generate viscosity analyses for ALL scenarios"""
+    print("\n🔬 Generating viscosity analyses for each scenario...")
+    
+    generated_files = []
+    
+    # Generate individual viscosity analyses for each scenario
+    for source_name, source_info in data_sources.items():
+        visc_path = generate_single_viscosity_analysis(source_name, source_info, save_dir)
+        if visc_path:
+            generated_files.append(visc_path)
+            print(f"✅ Generated: {visc_path}")
+    
+    if not generated_files:
+        print("❌ No viscosity analyses could be generated")
+        return []
+    
+    print(f"✅ Generated {len(generated_files)} viscosity analyses")
+    return generated_files
     """Generate viscosity analysis from existing data"""
     print("\n🔬 Generating viscosity analysis...")
     
@@ -617,9 +1076,12 @@ using results from interactive.py, app.py, and trained models from main.py.
             report_content += f"\n### {category}\n"
             if isinstance(files, list):
                 for file_path in files:
-                    report_content += f"- {file_path}\n"
+                    # Get just the filename for cleaner display
+                    filename = os.path.basename(file_path)
+                    report_content += f"- {filename}\n"
             else:
-                report_content += f"- {files}\n"
+                filename = os.path.basename(files)
+                report_content += f"- {filename}\n"
 
     report_content += f"""
 
@@ -690,24 +1152,31 @@ def main():
     # Generate visualizations
     generated_files = {}
     
-    # 1. Flow field visualizations
+    # 1. Flow field visualizations (individual + comparison)
     flow_dir = os.path.join(output_dir, "flow_fields")
-    flow_path = generate_flow_field_visualization(data_sources, flow_dir)
-    if flow_path:
-        generated_files["Flow Fields"] = [flow_path]
+    flow_paths = generate_flow_field_visualizations(data_sources, flow_dir)
+    if flow_paths:
+        generated_files["Flow Fields"] = flow_paths
     
-    # 2. Viscosity analysis
+    # 2. Viscosity analysis (individual for each scenario)
     viscosity_dir = os.path.join(output_dir, "viscosity_analysis")
-    viscosity_path = generate_viscosity_analysis(data_sources, viscosity_dir)
-    if viscosity_path:
-        generated_files["Viscosity Analysis"] = [viscosity_path]
+    viscosity_paths = generate_viscosity_analyses(data_sources, viscosity_dir)
+    if viscosity_paths:
+        generated_files["Viscosity Analysis"] = viscosity_paths
     
     # 3. 3D visualizations (if model is available)
     if model is not None:
         viz_3d_dir = os.path.join(output_dir, "3d_visualizations")
-        viz_3d_path = generate_3d_visualization(model, viz_3d_dir)
-        if viz_3d_path:
-            generated_files["3D Visualizations"] = [viz_3d_path]
+        try:
+            viz_3d_path = generate_3d_visualization(model, viz_3d_dir)
+            if viz_3d_path:
+                generated_files["3D Visualizations"] = [viz_3d_path]
+        except Exception as e:
+            print(f"⚠️  3D visualization failed: {e}")
+            print("   Continuing with other visualizations...")
+    else:
+        print("⚠️  Skipping 3D visualizations (no model available)")
+        print("   To get 3D visualizations, ensure model can be loaded successfully")
     
     # 4. Multi-scenario comparison
     multi_dir = os.path.join(output_dir, "multi_scenario")
@@ -725,7 +1194,23 @@ def main():
     print("="*70)
     
     total_files = sum(len(files) if isinstance(files, list) else 1 for files in generated_files.values())
-    print(f"📊 Generated {total_files} visualization files")
+    print(f"📊 Generated {total_files} visualization files from {len(data_sources)} data sources")
+    
+    print("\nIndividual visualizations generated for each scenario:")
+    flow_files = generated_files.get("Flow Fields", [])
+    visc_files = generated_files.get("Viscosity Analysis", [])
+    
+    for flow_file in flow_files:
+        if "comparison" not in flow_file:
+            scenario_name = os.path.basename(flow_file).replace("flow_fields_", "").replace(".png", "")
+            print(f"  🌊 Flow fields: {scenario_name}")
+    
+    for visc_file in visc_files:
+        scenario_name = os.path.basename(visc_file).replace("viscosity_analysis_", "").replace(".png", "")
+        print(f"  🔬 Viscosity analysis: {scenario_name}")
+    
+    if any("comparison" in f for f in flow_files):
+        print(f"  📊 Plus flow field comparison visualization")
     
     print(f"\n📁 All files saved to: {output_dir}")
     print("\nGenerated visualizations:")

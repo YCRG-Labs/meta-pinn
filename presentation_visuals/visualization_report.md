@@ -1,7 +1,7 @@
 
 # PINN Visualization Report
 
-Generated on: 2025-06-13 22:33:44
+Generated on: 2025-06-13 23:50:23
 
 ## Overview
 This report contains visualization files generated from existing PINN data,
@@ -9,14 +9,17 @@ using results from interactive.py, app.py, and trained models from main.py.
 
 ## Generated Files
 
-### Flow Fields
-- presentation_visuals/flow_fields/comprehensive_flow_fields.png
-
 ### Viscosity Analysis
-- presentation_visuals/viscosity_analysis/viscosity_inference_analysis.png
+- viscosity_analysis_inference.png
+- viscosity_analysis_1_low_reynolds.png
+- viscosity_analysis_2_medium_reynolds.png
+- viscosity_analysis_3_high_reynolds.png
+
+### 3D Visualizations
+- publication_3d_visualization.png
 
 ### Multi-Scenario
-- presentation_visuals/multi_scenario/multi_scenario_comparison.png
+- multi_scenario_comparison.png
 
 
 ## Usage for Presentation

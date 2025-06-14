@@ -119,6 +119,25 @@ PREDEFINED_SCENARIOS = [
             "n_time_slices": 1,
             "name": "High_Re_Strong_Viscosity"
         }
+    },
+    {
+        "id": "scenario_4_very_high_reynolds",
+        "name": "Very High Reynolds Number Flow",
+        "description": "Very high Reynolds number (Re=200) with extreme viscosity variation",
+        "parameters": {
+            "reynolds_number": 200.0,
+            "nu_base_true": 0.003,
+            "a_true": 0.12,
+            "u_max_inlet": 2.0,
+            "x_max": 3.5,
+            "y_max": 1.0,
+            "x_min": 0.0,
+            "y_min": 0.0,
+            "n_grid_x": 200,
+            "n_grid_y": 100,
+            "n_time_slices": 1,
+            "name": "Very_High_Re_Extreme_Viscosity"
+        }
     }
 ]
 
