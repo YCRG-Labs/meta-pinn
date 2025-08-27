@@ -172,3 +172,30 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# ML Research Pipeline specific
+results/
+*.png
+*.pdf
+*.svg
+*.tex
+*.json
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+wandb/
+tensorboard_logs/
+checkpoints/
+models/
+data/
+outputs/
+
+# Development artifacts
+TASK_*_SUMMARY.md
+*_SUMMARY.md
+.kiro/
+
+# OS specific
+.DS_Store
+Thumbs.db

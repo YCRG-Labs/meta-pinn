@@ -1,0 +1,65 @@
+# Default training configuration
+
+# Basic training settings
+epochs: 1000
+batch_size: 32
+learning_rate: 0.001
+
+# Optimizer settings
+optimizer: adam
+momentum: 0.9
+betas: [0.9, 0.999]
+eps: 1.0e-08
+weight_decay: 0.0001
+
+# Learning rate scheduling
+lr_scheduler: cosine
+lr_warmup_epochs: 10
+lr_decay_epochs: [300, 600, 900]
+lr_decay_factor: 0.1
+min_lr: 1.0e-06
+
+# Loss function settings
+loss_function: mse
+loss_weights:
+  data: 1.0
+  physics: 1.0
+  boundary: 1.0
+
+# Physics loss settings
+physics_loss_type: residual
+residual_sampling: uniform
+n_residual_points: 1000
+
+# Adaptive weighting
+adaptive_weights: true
+weight_update_frequency: 100
+weight_adaptation_method: gradnorm
+
+# Gradient settings
+gradient_clipping: 1.0
+gradient_accumulation_steps: 1
+
+# Early stopping
+early_stopping: true
+patience: 100
+min_delta: 1.0e-06
+monitor_metric: validation_loss
+
+# Validation settings
+validation_frequency: 10
+validation_split: 0.2
+
+# Checkpointing
+save_best_model: true
+save_last_model: true
+checkpoint_frequency: 100
+
+# Mixed precision training
+mixed_precision: false
+amp_opt_level: O1
+
+# Curriculum learning
+curriculum_learning: false
+curriculum_schedule: linear
+curriculum_epochs: 200

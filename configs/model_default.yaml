@@ -1,0 +1,26 @@
+# Default model configuration for PINN architectures
+
+# Architecture
+input_dim: 3  # x, y, t for 2D+time problems
+output_dim: 3  # u, v, p for velocity and pressure
+hidden_layers: [128, 128, 128, 128]
+activation: tanh
+
+# Initialization
+weight_init: xavier_normal
+bias_init: zeros
+
+# Normalization
+input_normalization: true
+output_normalization: false
+layer_normalization: false
+batch_normalization: false
+
+# Regularization
+dropout_rate: 0.0
+weight_decay: 0.0001
+
+# Physics constraints
+enforce_boundary_conditions: true
+physics_loss_weight: 1.0
+adaptive_physics_weight: true

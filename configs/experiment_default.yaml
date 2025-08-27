@@ -1,0 +1,46 @@
+# Default experiment configuration for meta-learning PINN research
+
+# Experiment metadata
+name: meta_pinn_baseline
+description: Baseline meta-learning PINN experiment
+version: 0.1.0
+author: ML Research Team
+
+# Experiment settings
+seed: 42
+device: cuda
+num_workers: 4
+
+# Output settings
+output_dir: experiments/outputs/baseline
+save_checkpoints: true
+checkpoint_interval: 100
+log_interval: 10
+
+# Evaluation settings
+eval_interval: 50
+save_predictions: true
+generate_plots: true
+
+# Distributed training
+distributed: false
+world_size: 1
+rank: 0
+backend: nccl
+
+# Reproducibility
+deterministic: true
+benchmark: false
+
+# Logging
+log_level: INFO
+wandb_project: null
+wandb_entity: null
+
+# Resource limits
+max_memory_gb: null
+max_time_hours: null
+
+# Experiment tags and metadata
+tags: []
+notes: ""

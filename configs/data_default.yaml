@@ -1,0 +1,59 @@
+# Default data configuration
+
+# Dataset settings
+dataset_name: fluid_dynamics_tasks
+data_dir: data
+cache_dir: data/cache
+
+# Data generation
+n_train_tasks: 1000
+n_val_tasks: 200
+n_test_tasks: 200
+
+# Task distribution
+task_types:
+  - linear_viscosity
+  - bilinear_viscosity
+  - exponential_viscosity
+  - temperature_dependent
+  - non_newtonian
+task_weights: null
+
+# Domain settings
+domain_bounds:
+  x: [0.0, 1.0]
+  y: [0.0, 1.0]
+  t: [0.0, 1.0]
+
+# Discretization
+spatial_resolution: [64, 64]
+temporal_resolution: 100
+
+# Sampling strategies
+boundary_sampling: uniform
+interior_sampling: uniform
+n_boundary_points: 100
+n_interior_points: 1000
+
+# Data preprocessing
+normalize_inputs: true
+normalize_outputs: true
+standardize: true
+
+# Augmentation
+data_augmentation: false
+augmentation_methods:
+  - rotation
+  - scaling
+  - noise
+augmentation_probability: 0.5
+
+# Caching and storage
+use_cache: true
+cache_format: hdf5
+compression: true
+
+# Parallel data loading
+num_workers: 4
+prefetch_factor: 2
+pin_memory: true
