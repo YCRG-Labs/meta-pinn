@@ -53,8 +53,8 @@ pip install -e . || pip install -e .[all] || echo "Package already installed"
 
 print_step "Installing additional dependencies..."
 pip install torch torchvision numpy scipy matplotlib seaborn pandas scikit-learn \
-    pyyaml tqdm tensorboard wandb hydra-core omegaconf sympy networkx \
-    pytest pytest-cov black isort flake8 mypy
+    pyyaml tqdm tensorboard wandb hydra-core omegaconf sympy networkx openpyxl psutil \
+    pytest pytest-cov pytest-timeout black isort flake8 mypy
 
 print_success "Dependencies installed"
 

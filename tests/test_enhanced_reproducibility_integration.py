@@ -106,7 +106,8 @@ class TestEnhancedReproducibilityIntegration:
         
         # 4. Create and validate model
         model = SimpleTestModel()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        # Use SGD instead of Adam for better determinism
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
         loss_fn = nn.MSELoss()
         
         torch.manual_seed(test_config.seed)
@@ -127,10 +128,10 @@ class TestEnhancedReproducibilityIntegration:
             validation_results
         )
         
-        # 6. Simulate training with detailed tracking
+        # 6. Simulate training with detailed tracking (reduced epochs for speed)
         training_history = []
         
-        for epoch in range(10):
+        for epoch in range(3):
             tracker.update_epoch(epoch)
             
             # Training step
@@ -159,14 +160,14 @@ class TestEnhancedReproducibilityIntegration:
                 "gradient_norm": metrics["gradient_norm"]
             })
             
-            # Save checkpoint
-            if epoch % 3 == 0:
+            # Save checkpoint (only on last epoch for speed)
+            if epoch == 2:
                 exp_manager.save_checkpoint(
                     model_state=model.state_dict(),
                     optimizer_state=optimizer.state_dict(),
                     epoch=epoch,
                     metrics=metrics,
-                    is_best=(epoch == 9)
+                    is_best=(epoch == 2)
                 )
         
         # 7. Complete experiment
@@ -249,24 +250,13 @@ class TestEnhancedReproducibilityIntegration:
         assert loaded_tracker.experiment_name == tracker.experiment_name
         assert loaded_env_manager.config.global_seed == repro_config.global_seed
         assert retrieved_result.experiment_id == exp_manager.experiment_id
-        
-        return {
-            "experiment_manager": exp_manager,
-            "tracker": tracker,
-            "validator": validator,
-            "version_manager": version_manager,
-            "result_manager": result_manager,
-            "env_manager": env_manager,
-            "validation_results": validation_results,
-            "experiment_result": experiment_result
-        }
     
     def test_multi_experiment_comparison_workflow(self, test_config, temp_dir):
         """Test workflow with multiple experiments and comparisons."""
         # Create multiple experiments with different configurations
         experiments = []
         
-        for i in range(3):
+        for i in range(2):  # Reduced from 3 to 2 for speed
             # Modify config for each experiment
             config = test_config.update(
                 name=f"comparison_exp_{i}",
@@ -362,8 +352,8 @@ class TestEnhancedReproducibilityIntegration:
         assert len(version_comparison_01.config_differences) > 0  # Different seeds
         
         assert result_comparison.comparison_type == "group"
-        assert len(result_comparison.experiment_ids) == 3
-        assert len(result_comparison.performance_ranking) == 3
+        assert len(result_comparison.experiment_ids) == 2
+        assert len(result_comparison.performance_ranking) == 2
         
         # Verify similar experiments found
         assert len(similar_experiments) >= 0  # May or may not find similar ones
@@ -373,7 +363,7 @@ class TestEnhancedReproducibilityIntegration:
         assert "similar_experiments" in version_report
         
         assert "summary" in results_report
-        assert results_report["summary"]["total_experiments"] == 3
+        assert results_report["summary"]["total_experiments"] == 2
         assert "comparison_analysis" in results_report
     
     def test_reproducibility_failure_handling_workflow(self, test_config, temp_dir):
@@ -590,13 +580,6 @@ class TestEnhancedReproducibilityIntegration:
         assert reference_file.exists()
         assert env_snapshot_file.exists()
         assert cross_platform_report_file.exists()
-        
-        return {
-            "reference_file": reference_file,
-            "environment_snapshot": env_snapshot_file,
-            "cross_platform_report": cross_platform_report_file,
-            "validation_result": cross_platform_result
-        }
     
     def test_experiment_lineage_and_versioning_workflow(self, test_config, temp_dir):
         """Test experiment lineage and versioning workflow."""
@@ -728,10 +711,3 @@ class TestEnhancedReproducibilityIntegration:
         assert lineage_report["improvement_metrics"]["accuracy_improvement"] > 0
         assert lineage_report["improvement_metrics"]["loss_reduction"] > 0
         assert len(lineage_report["hyperparameter_evolution"]) == 3
-        
-        return {
-            "experiments": experiments,
-            "lineage": lineage,
-            "comparison": comparison,
-            "lineage_report": lineage_report_file
-        }

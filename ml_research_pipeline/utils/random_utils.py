@@ -30,7 +30,20 @@ def set_random_seeds(seed: int, deterministic: bool = True) -> None:
     if deterministic:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-        torch.use_deterministic_algorithms(True)
+        
+        # Try to enable deterministic algorithms, but handle cases where it's not supported
+        try:
+            torch.use_deterministic_algorithms(True)
+        except (RuntimeError, AttributeError) as e:
+            # Some operations don't have deterministic implementations
+            # or the function might not exist in older PyTorch versions
+            # Fall back to just setting cudnn deterministic
+            import warnings
+            warnings.warn(
+                f"Could not enable all deterministic algorithms: {e}. "
+                "Using cudnn.deterministic=True only.",
+                UserWarning
+            )
     else:
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True

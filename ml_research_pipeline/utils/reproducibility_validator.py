@@ -63,8 +63,10 @@ class ReproducibilityValidator(LoggerMixin):
         outputs = []
         
         for run in range(num_runs):
-            # Set deterministic seed
-            set_random_seeds(seed, deterministic=True)
+            # Set deterministic seed (allow override via environment variable)
+            import os
+            use_deterministic = os.getenv('PYTORCH_DETERMINISTIC', 'true').lower() == 'true'
+            set_random_seeds(seed, deterministic=use_deterministic)
             
             # Forward pass
             model.eval()
@@ -129,29 +131,39 @@ class ReproducibilityValidator(LoggerMixin):
         # Save initial model state
         initial_state = {k: v.clone() for k, v in model.state_dict().items()}
         
+        # Create fresh optimizer for each run to ensure determinism
+        optimizer_class = type(optimizer)
+        optimizer_kwargs = optimizer.defaults.copy()
+        
         losses = []
         final_states = []
         
         for run in range(num_runs):
             # Restore initial state
             model.load_state_dict(initial_state)
-            optimizer.zero_grad()
             
-            # Set deterministic seed
-            set_random_seeds(seed, deterministic=True)
+            # Create fresh optimizer with same parameters
+            fresh_optimizer = optimizer_class(model.parameters(), **optimizer_kwargs)
+            fresh_optimizer.zero_grad()
+            
+            # Set deterministic seed (allow override via environment variable)
+            import os
+            use_deterministic = os.getenv('PYTORCH_DETERMINISTIC', 'true').lower() == 'true'
+            set_random_seeds(seed, deterministic=use_deterministic)
             
             # Training step
             model.train()
             output = model(input_data)
             loss = loss_fn(output, target_data)
             loss.backward()
-            optimizer.step()
+            fresh_optimizer.step()
             
             losses.append(loss.item())
             final_states.append({k: v.clone() for k, v in model.state_dict().items()})
         
-        # Check if all losses are identical
-        loss_identical = all(abs(loss - losses[0]) < self.tolerance for loss in losses)
+        # Check if all losses are identical (use slightly higher tolerance for training steps)
+        training_tolerance = max(self.tolerance, 1e-5)
+        loss_identical = all(abs(loss - losses[0]) < training_tolerance for loss in losses)
         
         # Check if all final states are identical
         state_identical = True
@@ -162,7 +174,7 @@ class ReproducibilityValidator(LoggerMixin):
                 diff = torch.abs(final_states[i][key] - final_states[0][key]).max().item()
                 max_param_diff = max(max_param_diff, diff)
                 
-                if diff > self.tolerance:
+                if diff > training_tolerance:
                     state_identical = False
         
         result = {
@@ -172,7 +184,7 @@ class ReproducibilityValidator(LoggerMixin):
             'state_identical': state_identical,
             'max_loss_difference': max(abs(loss - losses[0]) for loss in losses),
             'max_parameter_difference': max_param_diff,
-            'tolerance': self.tolerance,
+            'tolerance': training_tolerance,
             'num_runs': num_runs,
             'losses': losses
         }

@@ -115,7 +115,16 @@ class ExperimentVersionManager(LoggerMixin):
             self.version_db["experiments"][parent_experiment_id]["children_ids"].append(experiment_id)
         
         # Update version chains
-        base_name = manager.config.name.split('_v')[0]  # Remove version suffix
+        # Extract base name by removing version suffix or common suffixes
+        base_name = manager.config.name
+        if '_v' in base_name:
+            base_name = base_name.split('_v')[0]
+        elif '_' in base_name:
+            # For names like "lineage_baseline", extract "lineage"
+            parts = base_name.split('_')
+            if len(parts) > 1 and parts[-1] in ['baseline', 'improved', 'final', 'test', 'v1', 'v2']:
+                base_name = '_'.join(parts[:-1])
+        
         if base_name not in self.version_db["version_chains"]:
             self.version_db["version_chains"][base_name] = []
         
