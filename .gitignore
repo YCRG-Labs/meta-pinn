@@ -195,7 +195,23 @@ outputs/
 TASK_*_SUMMARY.md
 *_SUMMARY.md
 .kiro/
+debug_*.py
+fix_*.py
+test_*.py
+*_backup.py
 
 # OS specific
 .DS_Store
 Thumbs.db
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.log

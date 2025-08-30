@@ -12,12 +12,12 @@ __email__ = "research@example.com"
 
 # Core imports (will be implemented in subsequent tasks)
 from .config import Config, ExperimentConfig
-from .utils import setup_logging, set_random_seeds
+from .utils import set_random_seeds, setup_logging
 
 # Make key classes available at package level
 __all__ = [
     "Config",
-    "ExperimentConfig", 
+    "ExperimentConfig",
     "setup_logging",
     "set_random_seeds",
 ]

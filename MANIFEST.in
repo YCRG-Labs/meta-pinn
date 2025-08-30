@@ -1,0 +1,43 @@
+# Include important files
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CONTRIBUTING.md
+include PROJECT_STRUCTURE.md
+include QUICK_START_COMMANDS.md
+include pyproject.toml
+include pytest.ini
+include .pre-commit-config.yaml
+
+# Include configuration files
+recursive-include configs *.yaml *.yml *.json
+
+# Include documentation
+recursive-include docs *
+prune docs/_build
+
+# Include examples
+recursive-include examples *.py *.md
+
+# Include tests
+recursive-include tests *.py
+
+# Include package data
+recursive-include ml_research_pipeline *.py *.yaml *.yml *.json
+include ml_research_pipeline/py.typed
+
+# Exclude development and temporary files
+exclude debug_*.py
+exclude fix_*.py
+exclude test_*.py
+exclude *_backup.py
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .git*
+global-exclude *.so
+global-exclude *.dylib
+global-exclude *.dll
+global-exclude .DS_Store
+global-exclude Thumbs.db

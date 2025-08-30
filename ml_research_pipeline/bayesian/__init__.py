@@ -6,6 +6,6 @@ including variational inference, uncertainty quantification, and calibration.
 """
 
 from .bayesian_meta_pinn import BayesianMetaPINN
-from .uncertainty_calibrator import UncertaintyCalibrator, CalibrationEvaluator
+from .uncertainty_calibrator import CalibrationEvaluator, UncertaintyCalibrator
 
-__all__ = ['BayesianMetaPINN', 'UncertaintyCalibrator', 'CalibrationEvaluator']
+__all__ = ["BayesianMetaPINN", "UncertaintyCalibrator", "CalibrationEvaluator"]

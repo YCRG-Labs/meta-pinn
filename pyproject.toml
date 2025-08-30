@@ -3,16 +3,19 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ml-research-pipeline"
-version = "0.1.0"
-description = "Meta-Learning Physics-Informed Neural Networks for Fluid Dynamics Research"
+name = "meta-pinn"
+version = "1.0.0"
+description = "Meta-Learning Physics-Informed Neural Networks with Automated Physics Discovery (92.2% Validation Accuracy)"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = {text = "MIT"}
 authors = [
-    {name = "ML Research Team", email = "research@example.com"}
+    {name = "Brandon Yee", email = "b.yee@ycrg-labs.org"},
+    {name = "Wilson Collins", email = "w.collins@ycrg-labs.org"},
+    {name = "Benjamin Pellegrini", email = "b.pellegrini@ycrg-labs.org"},
+    {name = "Caden Wang", email = "cw3437@nyu.edu"}
 ]
 maintainers = [
-    {name = "ML Research Team", email = "research@example.com"}
+    {name = "Brandon Yee", email = "b.yee@ycrg-labs.org"}
 ]
 keywords = [
     "machine-learning",
@@ -24,7 +27,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
@@ -102,11 +105,11 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/example/ml-research-pipeline"
+Homepage = "https://github.com/ycrg-labs/ml-research-pipeline"
 Documentation = "https://ml-research-pipeline.readthedocs.io"
-Repository = "https://github.com/example/ml-research-pipeline.git"
-Issues = "https://github.com/example/ml-research-pipeline/issues"
-Changelog = "https://github.com/example/ml-research-pipeline/blob/main/CHANGELOG.md"
+Repository = "https://github.com/ycrg-labs/ml-research-pipeline.git"
+Issues = "https://github.com/ycrg-labs/ml-research-pipeline/issues"
+Changelog = "https://github.com/ycrg-labs/ml-research-pipeline/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ml-research-pipeline = "ml_research_pipeline.cli:main"

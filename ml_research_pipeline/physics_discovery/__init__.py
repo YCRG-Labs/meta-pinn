@@ -2,9 +2,33 @@
 Physics discovery and symbolic regression components.
 """
 
-from .causal_discovery import PhysicsCausalDiscovery, CausalRelationship
-from .symbolic_regression import NeuralSymbolicRegression, SymbolicExpression, ExpressionGenerator
-from .integrated_discovery import IntegratedPhysicsDiscovery, PhysicsHypothesis, DiscoveryResult
+from .causal_discovery import CausalRelationship, PhysicsCausalDiscovery
+from .discovery_ensemble import (
+    DiscoveryEnsemble,
+    DiscoveryMethod,
+    EnsembleDiscoveryResult,
+)
+from .ensemble_physics_discovery import (
+    EnsemblePhysicsDiscovery,
+    ExecutionConfig,
+    ValidationConfig,
+)
+from .improved_physics_discovery_pipeline import (
+    ImprovedPhysicsDiscoveryPipeline,
+    PipelineConfig,
+    PipelineResult,
+)
+from .integrated_discovery import (
+    DiscoveryResult,
+    IntegratedPhysicsDiscovery,
+    PhysicsHypothesis,
+)
+from .symbolic_regression import (
+    ExpressionGenerator,
+    NeuralSymbolicRegression,
+    SymbolicExpression,
+)
+
 # from .physics_validator import PhysicsValidator
 
 __all__ = [
@@ -16,5 +40,14 @@ __all__ = [
     "IntegratedPhysicsDiscovery",
     "PhysicsHypothesis",
     "DiscoveryResult",
+    "DiscoveryEnsemble",
+    "DiscoveryMethod",
+    "EnsembleDiscoveryResult",
+    "EnsemblePhysicsDiscovery",
+    "ExecutionConfig",
+    "ValidationConfig",
+    "ImprovedPhysicsDiscoveryPipeline",
+    "PipelineConfig",
+    "PipelineResult",
     # "PhysicsValidator",
 ]

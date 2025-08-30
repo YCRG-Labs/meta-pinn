@@ -3,17 +3,17 @@ Experiment tracking system for monitoring and logging experiment progress.
 """
 
 import json
+import threading
 import time
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
-from dataclasses import dataclass, asdict
-from collections import defaultdict, deque
-import threading
+from typing import Any, Dict, List, Optional, Union
 
-import torch
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 from .logging_utils import LoggerMixin
 
@@ -309,13 +309,15 @@ class ExperimentTracker(LoggerMixin):
         """Log hyperparameters."""
         with self.lock:
             self.hyperparameters.update(hyperparameters)
-            self._save_summary()
+        # Save summary outside the lock to prevent deadlock
+        self._save_summary()
 
     def log_metadata(self, metadata: Dict[str, Any]):
         """Log experiment metadata."""
         with self.lock:
             self.metadata.update(metadata)
-            self._save_summary()
+        # Save summary outside the lock to prevent deadlock
+        self._save_summary()
 
     def get_metric_statistics(self, metric_name: str) -> Optional[Dict[str, Any]]:
         """Get statistics for a specific metric.
@@ -388,17 +390,31 @@ class ExperimentTracker(LoggerMixin):
         if len(tracker.entries) < patience:
             return False
 
-        # Check if there's been improvement in the last 'patience' steps
+        # Check if there's been no significant improvement in the recent window
         recent_entries = tracker.entries[-patience:]
-        best_recent = min(entry.value for entry in recent_entries)
-
-        # Compare with best overall value
-        if tracker.best_value is None:
-            return False
-
-        improvement = tracker.best_value - best_recent
-
-        return improvement < min_delta
+        
+        # Find the best and worst values in the recent window
+        recent_values = [entry.value for entry in recent_entries]
+        best_recent = min(recent_values)
+        worst_recent = max(recent_values)
+        
+        # If the range of recent values is very small, it's a plateau
+        recent_range = worst_recent - best_recent
+        
+        # Also check improvement compared to earlier values
+        if len(tracker.entries) > patience:
+            # Compare with the best value from before the recent window
+            historical_entries = tracker.entries[:-patience]
+            best_historical = min(entry.value for entry in historical_entries)
+            improvement_from_history = best_historical - best_recent
+            
+            # Trigger early stopping if:
+            # 1. Recent values show little variation (plateau), OR
+            # 2. No significant improvement compared to history
+            return recent_range < min_delta or improvement_from_history < min_delta
+        else:
+            # Only check for plateau if we don't have enough history
+            return recent_range < min_delta
 
     def _save_metrics(self):
         """Save metrics to file."""
@@ -425,6 +441,20 @@ class ExperimentTracker(LoggerMixin):
         """Save experiment summary."""
         # Capture data while holding lock
         with self.lock:
+            # Get metrics statistics without calling methods that might acquire lock
+            metrics_statistics = {}
+            for name, tracker in self.metrics.items():
+                metrics_statistics[name] = tracker.get_statistics()
+            
+            # Get best metrics without calling methods that might acquire lock
+            best_metrics = {}
+            for name, tracker in self.metrics.items():
+                if tracker.best_value is not None:
+                    best_metrics[name] = {
+                        "value": tracker.best_value,
+                        "step": tracker.best_step,
+                    }
+            
             summary = {
                 "experiment_name": self.experiment_name,
                 "start_time": self.start_time,
@@ -433,8 +463,8 @@ class ExperimentTracker(LoggerMixin):
                 "is_running": self.is_running,
                 "hyperparameters": self.hyperparameters.copy(),
                 "metadata": self.metadata.copy(),
-                "metrics_statistics": self.get_all_metrics_statistics(),
-                "best_metrics": self.get_best_metrics(),
+                "metrics_statistics": metrics_statistics,
+                "best_metrics": best_metrics,
                 "total_events": len(self.events),
             }
 

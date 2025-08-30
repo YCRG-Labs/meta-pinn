@@ -7,47 +7,88 @@ This module provides a complete evaluation framework including:
 - Automated method comparison system
 """
 
+from .advanced_validation_framework import (
+    AdvancedValidationFramework,
+    ValidationConfig,
+    ValidationReport,
+    ValidationScore,
+)
 from .benchmark_suite import (
-    PINNBenchmarkSuite,
     BenchmarkConfig,
     BenchmarkResult,
     CavityFlowBenchmark,
     ChannelFlowBenchmark,
     CylinderFlowBenchmark,
-    ThermalConvectionBenchmark
+    PINNBenchmarkSuite,
+    ThermalConvectionBenchmark,
 )
-
-from .metrics import (
-    EvaluationMetrics,
-    StatisticalAnalysis,
-    MetricResult,
-    StatisticalTest
-)
-
+from .cross_validation import CrossValidationFramework, CVResult, NestedCVResult
 from .method_comparison import (
+    ComparisonResult,
     MethodComparison,
     MethodComparisonConfig,
-    ComparisonResult
+)
+from .metrics import (
+    EvaluationMetrics,
+    MetricResult,
+    StatisticalAnalysis,
+    StatisticalTest,
+)
+from .physics_consistency import (
+    ConservationLaw,
+    PhysicsConsistencyChecker,
+    PhysicsConsistencyResult,
+    SymmetryType,
+)
+from .statistical_validator import (
+    BootstrapResult,
+    StatisticalResult,
+    StatisticalValidator,
+)
+from .uncertainty_quantifier import (
+    BayesianUncertaintyQuantifier,
+    MonteCarloDropout,
+    UncertaintyQuantifier,
 )
 
 __all__ = [
     # Benchmark suite
-    'PINNBenchmarkSuite',
-    'BenchmarkConfig',
-    'BenchmarkResult',
-    'CavityFlowBenchmark',
-    'ChannelFlowBenchmark',
-    'CylinderFlowBenchmark',
-    'ThermalConvectionBenchmark',
-    
+    "PINNBenchmarkSuite",
+    "BenchmarkConfig",
+    "BenchmarkResult",
+    "CavityFlowBenchmark",
+    "ChannelFlowBenchmark",
+    "CylinderFlowBenchmark",
+    "ThermalConvectionBenchmark",
     # Metrics and statistics
-    'EvaluationMetrics',
-    'StatisticalAnalysis',
-    'MetricResult',
-    'StatisticalTest',
-    
+    "EvaluationMetrics",
+    "StatisticalAnalysis",
+    "MetricResult",
+    "StatisticalTest",
     # Method comparison
-    'MethodComparison',
-    'MethodComparisonConfig',
-    'ComparisonResult'
+    "MethodComparison",
+    "MethodComparisonConfig",
+    "ComparisonResult",
+    # Statistical validation
+    "StatisticalValidator",
+    "StatisticalResult",
+    "BootstrapResult",
+    # Cross-validation
+    "CrossValidationFramework",
+    "CVResult",
+    "NestedCVResult",
+    # Physics consistency
+    "PhysicsConsistencyChecker",
+    "PhysicsConsistencyResult",
+    "ConservationLaw",
+    "SymmetryType",
+    # Uncertainty quantification
+    "UncertaintyQuantifier",
+    "BayesianUncertaintyQuantifier",
+    "MonteCarloDropout",
+    # Advanced validation framework
+    "AdvancedValidationFramework",
+    "ValidationConfig",
+    "ValidationScore",
+    "ValidationReport",
 ]
