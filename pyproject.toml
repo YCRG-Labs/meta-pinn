@@ -104,21 +104,6 @@ all = [
     "ml-research-pipeline[dev,docs,test,gpu]"
 ]
 
-[project.urls]
-Homepage = "https://github.com/ycrg-labs/ml-research-pipeline"
-Documentation = "https://ml-research-pipeline.readthedocs.io"
-Repository = "https://github.com/ycrg-labs/ml-research-pipeline.git"
-Issues = "https://github.com/ycrg-labs/ml-research-pipeline/issues"
-Changelog = "https://github.com/ycrg-labs/ml-research-pipeline/blob/main/CHANGELOG.md"
-
-[project.scripts]
-ml-research-pipeline = "ml_research_pipeline.cli:main"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["ml_research_pipeline*"]
-exclude = ["tests*", "docs*", "examples*"]
-
 [tool.setuptools.package-data]
 ml_research_pipeline = ["py.typed", "*.yaml", "*.yml", "*.json"]
 
