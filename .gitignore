@@ -191,9 +191,21 @@ models/
 data/
 outputs/
 
+# BUT allow presentation figures
+!presentation_figures/
+!presentation_figures/*.png
+!conceptual_figures/
+!conceptual_figures/*.png
+!paper/MDPI/figures/
+!paper/MDPI/figures/*.png
+!*.pptx
+
 # Development artifacts
 TASK_*_SUMMARY.md
 *_SUMMARY.md
+# BUT allow presentation documentation
+!COMPLETE_FIGURES_SUMMARY.md
+!POWERPOINT_PRESENTATION_COMPLETE.md
 .kiro/
 debug_*.py
 fix_*.py
